@@ -22,6 +22,32 @@ use([
     GraphicComponent
 ]);
 
+// ===== 组件内集中管理的图表颜色（对应全局 OKLCH 色板，统一用 hex 保证 canvas 稳定渲染） =====
+const COLORS = {
+    // 折线主色（色相拉开，增强区分度）
+    feature: "#4670d2",      // 功能更新 → 蓝
+    price: "#c85fd7",        // 价格变动 → 紫(偏品红)
+    sentiment: "#3cbea0",    // 舆论热度 → 绿
+    // 渐变（RGBA，带透明度）
+    featureGradient: ["rgba(70, 110, 210, 0.3)", "rgba(70, 110, 210, 0.02)"],
+    priceGradient: ["rgba(200, 95, 215, 0.25)", "rgba(200, 95, 215, 0.02)"],
+    sentimentGradient: ["rgba(60, 190, 160, 0.25)", "rgba(60, 190, 160, 0.02)"],
+    // 文字 / 边框 / 分割线
+    textPrimary: "#303133",
+    textSecondary: "#7a7f85",
+    textPlaceholder: "#a8adb3",
+    border: "#e5e7eb",
+    tooltipBg: "#fff",
+};
+
+// ===== 组件内统一管理的图表字号（ECharts 默认 12px，可自行调整） =====
+const FONTS = {
+    legend: 16,      // 图例文字
+    axis: 16,        // 横/纵坐标轴刻度
+    tooltip: 16,     // 悬停提示文字
+    empty: 16,       // 空数据提示文字
+};
+
 const props = withDefaults(
     defineProps<{
         data?: TrendPoint[];
@@ -43,7 +69,7 @@ function buildOption(list: TrendPoint[]) {
                 type: 'text',
                 left: 'center',
                 top: 'center',
-                style: { text: '暂无趋势数据', fill: '#909399', fontSize: 14 }
+                style: { text: '暂无趋势数据', fill: COLORS.textSecondary, fontSize: FONTS.empty }
             }],
             xAxis: { show: false },
             yAxis: { show: false },
@@ -54,18 +80,18 @@ function buildOption(list: TrendPoint[]) {
     return {
         tooltip: {
             trigger: "axis",
-            backgroundColor: "#fff",
-            borderColor: "#e5e7eb",
-            textStyle: { color: "#303133" },
+            backgroundColor: COLORS.tooltipBg,
+            borderColor: COLORS.border,
+            textStyle: { color: COLORS.textPrimary, fontSize: FONTS.tooltip },
         },
         legend: {
             top: 10,
-            left: 10,
+            right: 10,
             icon: "rect",
             itemWidth: 12,
-            itemHeight: 4,
+            itemHeight: 12,
             data: ["功能更新", "价格变动", "舆论热度"],
-            textStyle: { color: "#303133" },
+            textStyle: { color: COLORS.textPrimary, fontSize: FONTS.legend },
         },
         grid: {
             left: 20,
@@ -80,12 +106,12 @@ function buildOption(list: TrendPoint[]) {
             data: list.map((d) => d.date),
             axisLine: { show: false },
             axisTick: { show: false },
-            axisLabel: { color: "#909399" },
+            axisLabel: { color: COLORS.textPlaceholder, fontSize: FONTS.axis },
         },
         yAxis: {
             type: "value",
-            splitLine: { lineStyle: { type: "dashed", color: "#e5e7eb" } },
-            axisLabel: { color: "#909399" },
+            splitLine: { lineStyle: { type: "dashed", color: COLORS.border } },
+            axisLabel: { color: COLORS.textPlaceholder, fontSize: FONTS.axis },
         },
         series: [
             {
@@ -93,11 +119,13 @@ function buildOption(list: TrendPoint[]) {
                 type: "line",
                 smooth: true,
                 symbol: "none",
-                lineStyle: { width: 2, color: "#5470c6" },
+                color: COLORS.feature,
+                lineStyle: { width: 2, color: COLORS.feature },
+                emphasis: { lineStyle: { width: 2, color: COLORS.feature } },
                 areaStyle: {
                     color: new graphic.LinearGradient(0, 0, 0, 1, [
-                        { offset: 0, color: "rgba(84, 112, 198, 0.3)" },
-                        { offset: 1, color: "rgba(84, 112, 198, 0.02)" },
+                        { offset: 0, color: COLORS.featureGradient[0] },
+                        { offset: 1, color: COLORS.featureGradient[1] },
                     ]),
                 },
                 data: list.map(d => d.feature),
@@ -107,11 +135,13 @@ function buildOption(list: TrendPoint[]) {
                 type: "line",
                 smooth: true,
                 symbol: "none",
-                lineStyle: { width: 2, color: "#9c6ade" },
+                color: COLORS.price,
+                lineStyle: { width: 2, color: COLORS.price },
+                emphasis: { lineStyle: { width: 2, color: COLORS.price } },
                 areaStyle: {
                     color: new graphic.LinearGradient(0, 0, 0, 1, [
-                        { offset: 0, color: "rgba(156, 106, 222, 0.25)" },
-                        { offset: 1, color: "rgba(156, 106, 222, 0.02)" },
+                        { offset: 0, color: COLORS.priceGradient[0] },
+                        { offset: 1, color: COLORS.priceGradient[1] },
                     ]),
                 },
                 data: list.map(d => d.price),
@@ -121,11 +151,13 @@ function buildOption(list: TrendPoint[]) {
                 type: "line",
                 smooth: true,
                 symbol: "none",
-                lineStyle: { width: 2, color: "#34c19e" },
+                color: COLORS.sentiment,
+                lineStyle: { width: 2, color: COLORS.sentiment },
+                emphasis: { lineStyle: { width: 2, color: COLORS.sentiment } },
                 areaStyle: {
                     color: new graphic.LinearGradient(0, 0, 0, 1, [
-                        { offset: 0, color: "rgba(52, 193, 158, 0.25)" },
-                        { offset: 1, color: "rgba(52, 193, 158, 0.02)" },
+                        { offset: 0, color: COLORS.sentimentGradient[0] },
+                        { offset: 1, color: COLORS.sentimentGradient[1] },
                     ]),
                 },
                 data: list.map(d => d.sentiment),
@@ -135,5 +167,11 @@ function buildOption(list: TrendPoint[]) {
 }
 </script>
 <template>
-  <v-chart :style="{ height: props.height }" :option="option" autoresize />
+  <v-chart class="trend-chart" :style="{ height: props.height }" :option="option" autoresize />
 </template>
+<style scoped>
+.trend-chart {
+  width: 100%;
+  display: block;
+}
+</style>

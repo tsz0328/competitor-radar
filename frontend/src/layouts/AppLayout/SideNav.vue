@@ -4,6 +4,7 @@ import { ref, watch } from "vue";
 import {
   OfficeBuilding,
   List,
+  Document,
   TrendCharts,
   Setting,
   HomeFilled,
@@ -18,8 +19,9 @@ const activeMenu = ref(route.name);
 const menus = [
   { name: "Dashboard", label: "工作台", icon: HomeFilled },
   { name: "Competitor", label: "竞品管理", icon: OfficeBuilding },
-  { name: "Event", label: "事件流", icon: List },
-  { name: "Report", label: "周报/趋势", icon: TrendCharts },
+  { name: "Event", label: "情报事件", icon: List },
+  { name: "Report", label: "周报", icon: Document },
+  { name: "Trend", label: "趋势", icon: TrendCharts },
   { name: "Setting", label: "设置", icon: Setting },
 ];
 
@@ -35,8 +37,8 @@ watch(
 <template>
   <div class="side-nav">
     <!-- logo -->
-    <div class="logo">
-      <Radar size="1.5em" color="var(--app-color-blue)" />
+    <div class="logo" @click="$router.push({ name: 'Landing' })">
+      <Radar size="1.5em" />
       <div>AI 竞品雷达</div>
     </div>
 
@@ -82,10 +84,22 @@ watch(
 .logo {
   display: flex;
   align-items: center;
-  gap: 1vw;
+  justify-content: center;
   font-size: 1.5vmax;
   margin-bottom: 4vh;
+  cursor: pointer;
+  transition: transform 0.2s ease, color 0.2s ease;
+  color: var(--app-color-blue);
 }
+.logo:hover{
+  color: var(--app-color-blue-light-2);
+  transform: scale(1.1);
+}
+.logo:active{
+  color: var(--app-color-blue-light-1);
+  transform: scale(1.05);
+}
+
 .menu-list {
   display: flex;
   flex-direction: column;

@@ -53,22 +53,15 @@ onUnmounted(() => observer?.disconnect());
       <!-- 导航链接 -->
       <nav class="landing-header-nav">
         <a href="#home" :class="{ active: activeId === 'home' }">首页</a>
-        <a href="#preview" :class="{ active: activeId === 'preview' }"
-          >产品预览</a
-        >
-        <a href="#features" :class="{ active: activeId === 'features' }"
-          >核心功能</a
-        >
-        <a href="#workflow" :class="{ active: activeId === 'workflow' }"
-          >工作流程</a
-        >
+        <a href="#preview" :class="{ active: activeId === 'preview' }">产品预览</a>
+        <a href="#features" :class="{ active: activeId === 'features' }">核心功能</a>
+        <a href="#workflow" :class="{ active: activeId === 'workflow' }">工作流程</a>
       </nav>
 
       <!-- 右边按钮 -->
       <div class="landing-header-actions">
-        <el-button class="landing-header-actions-btn" type="primary" @click="$router.push({ name: 'Login' })"
-          >快速开始</el-button
-        >
+        <el-button class="landing-header-actions-btn" type="primary"
+          @click="$router.push({ name: 'Login' })">快速开始</el-button>
       </div>
     </div>
   </header>
@@ -97,17 +90,15 @@ onUnmounted(() => observer?.disconnect());
         </div>
         <!-- 按钮 -->
         <div class="hero-actions">
-          <el-button class="hero-actions-left" type="primary" @click="$router.push({ name: 'Login' })"
-            >开始使用</el-button
-          >
+          <el-button class="hero-actions-left" type="primary" @click="$router.push({ name: 'Login' })">开始使用</el-button>
           <el-button class="hero-actions-right">
             <div class="hero-actions-right-row">
               <el-icon class="hero-actions-right-icon">
                 <CaretRight />
               </el-icon>
             </div>
-            查看产品演示</el-button
-          >
+            查看产品演示
+          </el-button>
         </div>
         <!-- 产品特性数据 -->
         <div class="hero-feature-row">
@@ -134,14 +125,15 @@ onUnmounted(() => observer?.disconnect());
         <!-- 头部 -->
         <header class="preview-header">
           <div class="preview-header-logo">
-            <Radar size="1.5em" color="var(--app-color-blue)" /><span
-              class="preview-header-logo-text"
-              >AI 竞品雷达</span
-            >
+            <Radar size="1.5em" color="var(--app-color-blue)" /><span class="preview-header-logo-text">AI 竞品雷达</span>
           </div>
           <div class="preview-header-right">
-            <el-icon><Bell /></el-icon>
-            <el-icon class="preview-header-right-avatar"><User /></el-icon>
+            <el-icon>
+              <Bell />
+            </el-icon>
+            <el-icon class="preview-header-right-avatar">
+              <User />
+            </el-icon>
           </div>
         </header>
         <!-- 主体 -->
@@ -149,27 +141,39 @@ onUnmounted(() => observer?.disconnect());
           <!-- 侧边栏 -->
           <aside class="preview-main-sidebar">
             <div class="preview-main-sidebar-item">
-              <el-icon><House /></el-icon>
+              <el-icon>
+                <House />
+              </el-icon>
               <span>工作台</span>
             </div>
             <div class="preview-main-sidebar-item">
-              <el-icon><Collection /></el-icon>
+              <el-icon>
+                <Collection />
+              </el-icon>
               <span>竞品管理</span>
             </div>
             <div class="preview-main-sidebar-item">
-              <el-icon><Warning /></el-icon>
+              <el-icon>
+                <Warning />
+              </el-icon>
               <span>情报事件</span>
             </div>
             <div class="preview-main-sidebar-item">
-              <el-icon><Document /></el-icon>
+              <el-icon>
+                <Document />
+              </el-icon>
               <span>AI 报告</span>
             </div>
             <div class="preview-main-sidebar-item">
-              <el-icon><TrendCharts /></el-icon>
+              <el-icon>
+                <TrendCharts />
+              </el-icon>
               <span>趋势分析</span>
             </div>
             <div class="preview-main-sidebar-item">
-              <el-icon><Setting /></el-icon>
+              <el-icon>
+                <Setting />
+              </el-icon>
               <span>设置</span>
             </div>
           </aside>
@@ -187,9 +191,13 @@ onUnmounted(() => observer?.disconnect());
               </div>
               <!-- 日期 -->
               <div class="preview-main-content-header-date">
-                <el-icon><Calendar /></el-icon>
+                <el-icon>
+                  <Calendar />
+                </el-icon>
                 <span>2026年12月25日</span>
-                <el-icon><ArrowRight /></el-icon>
+                <el-icon>
+                  <ArrowRight />
+                </el-icon>
               </div>
             </header>
 
@@ -253,69 +261,23 @@ onUnmounted(() => observer?.disconnect());
                 </div>
                 <!-- 图表 -->
                 <div class="preview-body-chart">
-                  <svg
-                    class="preview-chart-svg"
-                    viewBox="0 0 425 180"
-                    preserveAspectRatio="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
+                  <svg class="preview-chart-svg" viewBox="0 0 425 180" preserveAspectRatio="none"
+                    xmlns="http://www.w3.org/2000/svg">
                     <defs>
                       <!-- 蓝色渐变：功能更新 -->
-                      <linearGradient
-                        id="area-blue"
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="0%"
-                          stop-color="var(--app-color-blue)"
-                          stop-opacity="0.25"
-                        />
-                        <stop
-                          offset="100%"
-                          stop-color="var(--app-color-blue)"
-                          stop-opacity="0.02"
-                        />
+                      <linearGradient id="area-blue" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="var(--app-color-blue)" stop-opacity="0.25" />
+                        <stop offset="100%" stop-color="var(--app-color-blue)" stop-opacity="0.02" />
                       </linearGradient>
                       <!-- 紫色渐变：价格变动 -->
-                      <linearGradient
-                        id="area-purple"
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="0%"
-                          stop-color="var(--app-color-purple)"
-                          stop-opacity="0.2"
-                        />
-                        <stop
-                          offset="100%"
-                          stop-color="var(--app-color-purple)"
-                          stop-opacity="0.02"
-                        />
+                      <linearGradient id="area-purple" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="var(--app-color-purple)" stop-opacity="0.2" />
+                        <stop offset="100%" stop-color="var(--app-color-purple)" stop-opacity="0.02" />
                       </linearGradient>
                       <!-- 绿色渐变：舆论热度 -->
-                      <linearGradient
-                        id="area-green"
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="0%"
-                          stop-color="var(--app-color-green)"
-                          stop-opacity="0.2"
-                        />
-                        <stop
-                          offset="100%"
-                          stop-color="var(--app-color-green)"
-                          stop-opacity="0.02"
-                        />
+                      <linearGradient id="area-green" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="var(--app-color-green)" stop-opacity="0.2" />
+                        <stop offset="100%" stop-color="var(--app-color-green)" stop-opacity="0.02" />
                       </linearGradient>
                     </defs>
 
@@ -329,12 +291,7 @@ onUnmounted(() => observer?.disconnect());
                     </g>
 
                     <!-- 纵轴刻度 0-20 -->
-                    <g
-                      fill="#909399"
-                      font-size="12"
-                      text-anchor="end"
-                      font-family="system-ui"
-                    >
+                    <g fill="#909399" font-size="12" text-anchor="end" font-family="system-ui">
                       <text x="25" y="14">20</text>
                       <text x="25" y="50.25">15</text>
                       <text x="25" y="86.5">10</text>
@@ -343,12 +300,7 @@ onUnmounted(() => observer?.disconnect());
                     </g>
 
                     <!-- 横轴日期刻度 -->
-                    <g
-                      fill="#909399"
-                      font-size="12"
-                      text-anchor="middle"
-                      font-family="system-ui"
-                    >
+                    <g fill="#909399" font-size="12" text-anchor="middle" font-family="system-ui">
                       <text x="30" y="172">6/19</text>
                       <text x="93.33" y="172">6/20</text>
                       <text x="156.67" y="172">6/21</text>
@@ -361,50 +313,32 @@ onUnmounted(() => observer?.disconnect());
                     <!-- 舆论热度（最底层绿色面积） -->
                     <path
                       d="M30,155 C62,137 94,126 125,118.8 S188,126 220,93.4 S283,105 315,118.8 S378,100 410,81 L410,155 L30,155 Z"
-                      fill="url(#area-green)"
-                    />
+                      fill="url(#area-green)" />
 
                     <!-- 价格变动（中间层紫色面积） -->
                     <path
                       d="M30,112 C62,98 94,88 125,82 S188,92 220,66 S283,76 315,85 S378,55 410,28 L410,155 L30,155 Z"
-                      fill="url(#area-purple)"
-                    />
+                      fill="url(#area-purple)" />
 
                     <!-- 功能更新（最上层蓝色面积） -->
                     <path
                       d="M30,97 C62,81 94,69 125,64.4 S188,75 220,46.3 S283,58 315,68 S378,42 410,10 L410,155 L30,155 Z"
-                      fill="url(#area-blue)"
-                    />
+                      fill="url(#area-blue)" />
 
                     <!-- 功能更新：蓝色主折线 -->
-                    <path
-                      d="M30,97 C62,81 94,69 125,64.4 S188,75 220,46.3 S283,58 315,68 S378,42 410,10"
-                      fill="none"
-                      stroke="var(--app-color-blue)"
-                      stroke-width="2.5"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
+                    <path d="M30,97 C62,81 94,69 125,64.4 S188,75 220,46.3 S283,58 315,68 S378,42 410,10" fill="none"
+                      stroke="var(--app-color-blue)" stroke-width="2.5" stroke-linecap="round"
+                      stroke-linejoin="round" />
 
                     <!-- 价格变动：紫色折线 -->
-                    <path
-                      d="M30,112 C62,98 94,88 125,82 S188,92 220,66 S283,76 315,85 S378,55 410,28"
-                      fill="none"
-                      stroke="var(--app-color-purple)"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
+                    <path d="M30,112 C62,98 94,88 125,82 S188,92 220,66 S283,76 315,85 S378,55 410,28" fill="none"
+                      stroke="var(--app-color-purple)" stroke-width="2" stroke-linecap="round"
+                      stroke-linejoin="round" />
 
                     <!-- 舆论热度：绿色折线 -->
-                    <path
-                      d="M30,155 C62,137 94,126 125,118.8 S188,126 220,93.4 S283,105 315,118.8 S378,100 410,81"
-                      fill="none"
-                      stroke="var(--app-color-green)"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
+                    <path d="M30,155 C62,137 94,126 125,118.8 S188,126 220,93.4 S283,105 315,118.8 S378,100 410,81"
+                      fill="none" stroke="var(--app-color-green)" stroke-width="2" stroke-linecap="round"
+                      stroke-linejoin="round" />
                   </svg>
                 </div>
               </div>
@@ -462,47 +396,16 @@ onUnmounted(() => observer?.disconnect());
         <div class="feature-card">
           <div class="feature-card-header">
             <span class="feature-card-header-icon icon-blue-light">
-              <svg
-                color="var(--app-color-blue)"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M3 8V5c0-1.1.9-2 2-2h3"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-                <path
-                  d="M21 8V5c0-1.1-.9-2-2-2h-3"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-                <path
-                  d="M3 16v3c0 1.1.9 2 2 2h3"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-                <path
-                  d="M21 16v3c0 1.1-.9 2-2 2h-3"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-                <circle
-                  cx="12"
-                  cy="12"
-                  r="5"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                />
+              <svg color="var(--app-color-blue)" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M3 8V5c0-1.1.9-2 2-2h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                  stroke-linejoin="round" />
+                <path d="M21 8V5c0-1.1-.9-2-2-2h-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                  stroke-linejoin="round" />
+                <path d="M3 16v3c0 1.1.9 2 2 2h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                  stroke-linejoin="round" />
+                <path d="M21 16v3c0 1.1-.9 2-2 2h-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                  stroke-linejoin="round" />
+                <circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="1.8" />
                 <circle cx="12" cy="12" r="1.8" fill="currentColor" />
               </svg>
             </span>
@@ -518,27 +421,11 @@ onUnmounted(() => observer?.disconnect());
         <div class="feature-card">
           <div class="feature-card-header">
             <span class="feature-card-header-icon icon-purple-light">
-              <svg
-                color="var(--app-color-purple)"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
+              <svg color="var(--app-color-purple)" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path
                   d="M12 3c-3.5 0-6 2.5-6 5.5 0 1.2-1.2 2-1.2 3.5s1.2 2.3 1.2 3.5c0 3 2.5 5.5 6 5.5s6-2.5 6-5.5c0-1.2 1.2-2.3 1.2-3.5s-1.2-2.3-1.2-3.5c0-3-2.5-5.5-6-5.5z"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linejoin="round"
-                />
-                <line
-                  x1="12"
-                  y1="4"
-                  x2="12"
-                  y2="20"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                />
+                  stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+                <line x1="12" y1="4" x2="12" y2="20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
                 <circle cx="8.5" cy="7.5" r="1" fill="currentColor" />
                 <circle cx="8" cy="11.5" r="1" fill="currentColor" />
                 <circle cx="8.5" cy="15.5" r="1" fill="currentColor" />
@@ -558,39 +445,10 @@ onUnmounted(() => observer?.disconnect());
         <div class="feature-card">
           <div class="feature-card-header">
             <span class="feature-card-header-icon icon-green-light">
-              <svg
-                color="var(--app-color-green)"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <rect
-                  x="3.5"
-                  y="14"
-                  width="5"
-                  height="7"
-                  rx="1.5"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                />
-                <rect
-                  x="9.5"
-                  y="9"
-                  width="5"
-                  height="12"
-                  rx="1.5"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                />
-                <rect
-                  x="15.5"
-                  y="4"
-                  width="5"
-                  height="17"
-                  rx="1.5"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                />
+              <svg color="var(--app-color-green)" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="3.5" y="14" width="5" height="7" rx="1.5" stroke="currentColor" stroke-width="1.8" />
+                <rect x="9.5" y="9" width="5" height="12" rx="1.5" stroke="currentColor" stroke-width="1.8" />
+                <rect x="15.5" y="4" width="5" height="17" rx="1.5" stroke="currentColor" stroke-width="1.8" />
               </svg>
             </span>
             <div class="feature-card-title">趋势洞察</div>
@@ -614,39 +472,11 @@ onUnmounted(() => observer?.disconnect());
         <!-- 步骤1：添加竞品 -->
         <div class="workflow-steps-item">
           <div class="workflow-steps-icon icon-blue-lighter">
-            <svg
-              color="var(--app-color-blue-light-1)"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect
-                x="5"
-                y="4"
-                width="14"
-                height="16"
-                rx="2"
-                stroke="currentColor"
-                stroke-width="1.8"
-              />
-              <line
-                x1="12"
-                y1="8"
-                x2="12"
-                y2="16"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-              />
-              <line
-                x1="8"
-                y1="12"
-                x2="16"
-                y2="12"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-              />
+            <svg color="var(--app-color-blue-light-1)" viewBox="0 0 24 24" fill="none"
+              xmlns="http://www.w3.org/2000/svg">
+              <rect x="5" y="4" width="14" height="16" rx="2" stroke="currentColor" stroke-width="1.8" />
+              <line x1="12" y1="8" x2="12" y2="16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              <line x1="8" y1="12" x2="16" y2="12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
             </svg>
           </div>
           <div class="workflow-steps-item-title">1. 添加竞品</div>
@@ -658,27 +488,9 @@ onUnmounted(() => observer?.disconnect());
         <!-- 步骤2：自动监控 -->
         <div class="workflow-steps-item">
           <div class="workflow-steps-icon icon-blue-light">
-            <svg
-              color="var(--app-color-blue)"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect
-                x="3"
-                y="6"
-                width="14"
-                height="12"
-                rx="2"
-                stroke="currentColor"
-                stroke-width="1.8"
-              />
-              <path
-                d="M17 9l4-2v10l-4-2"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linejoin="round"
-              />
+            <svg color="var(--app-color-blue)" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="3" y="6" width="14" height="12" rx="2" stroke="currentColor" stroke-width="1.8" />
+              <path d="M17 9l4-2v10l-4-2" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
               <rect x="7" y="10" width="3" height="3" fill="currentColor" />
             </svg>
           </div>
@@ -691,83 +503,20 @@ onUnmounted(() => observer?.disconnect());
         <!-- 步骤3：AI智能分析 -->
         <div class="workflow-steps-item">
           <div class="workflow-steps-icon icon-purple-light">
-            <svg
-              color="var(--app-color-purple)"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <circle
-                cx="12"
-                cy="12"
-                r="2.5"
-                stroke="currentColor"
-                stroke-width="1.8"
-              />
-              <circle
-                cx="6"
-                cy="7"
-                r="1.5"
-                stroke="currentColor"
-                stroke-width="1.8"
-              />
-              <circle
-                cx="18"
-                cy="7"
-                r="1.5"
-                stroke="currentColor"
-                stroke-width="1.8"
-              />
-              <circle
-                cx="6"
-                cy="17"
-                r="1.5"
-                stroke="currentColor"
-                stroke-width="1.8"
-              />
-              <circle
-                cx="18"
-                cy="17"
-                r="1.5"
-                stroke="currentColor"
-                stroke-width="1.8"
-              />
-              <line
-                x1="7.5"
-                y1="8.5"
-                x2="10"
-                y2="10.5"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-              />
-              <line
-                x1="16.5"
-                y1="8.5"
-                x2="14"
-                y2="10.5"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-              />
-              <line
-                x1="7.5"
-                y1="15.5"
-                x2="10"
-                y2="13.5"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-              />
-              <line
-                x1="16.5"
-                y1="15.5"
-                x2="14"
-                y2="13.5"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-              />
+            <svg color="var(--app-color-purple)" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="2.5" stroke="currentColor" stroke-width="1.8" />
+              <circle cx="6" cy="7" r="1.5" stroke="currentColor" stroke-width="1.8" />
+              <circle cx="18" cy="7" r="1.5" stroke="currentColor" stroke-width="1.8" />
+              <circle cx="6" cy="17" r="1.5" stroke="currentColor" stroke-width="1.8" />
+              <circle cx="18" cy="17" r="1.5" stroke="currentColor" stroke-width="1.8" />
+              <line x1="7.5" y1="8.5" x2="10" y2="10.5" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" />
+              <line x1="16.5" y1="8.5" x2="14" y2="10.5" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" />
+              <line x1="7.5" y1="15.5" x2="10" y2="13.5" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" />
+              <line x1="16.5" y1="15.5" x2="14" y2="13.5" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" />
             </svg>
           </div>
           <div class="workflow-steps-item-title">3. AI 智能分析</div>
@@ -779,48 +528,11 @@ onUnmounted(() => observer?.disconnect());
         <!-- 步骤4：获取情报 -->
         <div class="workflow-steps-item">
           <div class="workflow-steps-icon icon-green-light">
-            <svg
-              color="var(--app-color-green)"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect
-                x="5"
-                y="3"
-                width="14"
-                height="18"
-                rx="2"
-                stroke="currentColor"
-                stroke-width="1.8"
-              />
-              <line
-                x1="9"
-                y1="8"
-                x2="15"
-                y2="8"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-              />
-              <line
-                x1="9"
-                y1="12"
-                x2="15"
-                y2="12"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-              />
-              <line
-                x1="9"
-                y1="16"
-                x2="12"
-                y2="16"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-              />
+            <svg color="var(--app-color-green)" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="5" y="3" width="14" height="18" rx="2" stroke="currentColor" stroke-width="1.8" />
+              <line x1="9" y1="8" x2="15" y2="8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              <line x1="9" y1="12" x2="15" y2="12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              <line x1="9" y1="16" x2="12" y2="16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
             </svg>
           </div>
           <div class="workflow-steps-item-title">4. 获取情报</div>
@@ -837,9 +549,7 @@ onUnmounted(() => observer?.disconnect());
       <!-- 品牌信息 -->
       <div class="landing-footer-brand">
         <span class="landing-footer-brand-title">AI 竞品雷达</span>
-        <span class="landing-footer-brand-subtitle"
-          >让AI成为你的市场情报助手</span
-        >
+        <span class="landing-footer-brand-subtitle">让AI成为你的市场情报助手</span>
       </div>
 
       <!-- 导航链接 -->
@@ -864,11 +574,7 @@ onUnmounted(() => observer?.disconnect());
           <span class="landing-footer-nav-item-title">法律</span>
           <a href="#">隐私政策</a>
           <a href="#">服务条款</a>
-          <a
-            href="https://github.com/tsz0328/ai-competitor-radar.git"
-            target="_blank"
-            >GitHub</a
-          >
+          <a href="https://github.com/tsz0328/ai-competitor-radar.git" target="_blank">GitHub</a>
         </div>
       </nav>
 
@@ -881,6 +587,18 @@ onUnmounted(() => observer?.disconnect());
 </template>
 
 <style scoped>
+/* 按钮字号、圆角、内边距：由全局移到此页，仅本页按钮生效 */
+.el-button {
+  --el-font-size-base: 1.5vmax;
+  --el-border-radius-base: 100vmax;
+  --btn-padding-y: 1vh;
+  --btn-padding-x: 1.6vw;
+
+  height: auto;
+  font-size: var(--el-font-size-base);
+  border-radius: var(--el-border-radius-base);
+  padding: var(--btn-padding-y) var(--btn-padding-x);
+}
 /* 顶部导航栏 */
 .landing-header {
   position: sticky;
@@ -888,8 +606,7 @@ onUnmounted(() => observer?.disconnect());
   z-index: 100;
   background: color-mix(in oklch, var(--app-color-white) 80%, transparent);
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid
-    color-mix(in oklch, var(--app-color-blue) 8%, var(--app-color-white));
+  border-bottom: 1px solid color-mix(in oklch, var(--app-color-blue) 8%, var(--app-color-white));
 }
 
 /* 导航栏容器 */
@@ -919,19 +636,23 @@ onUnmounted(() => observer?.disconnect());
   gap: 2vw;
   font-size: 1.5vmax;
 }
+
 /* 每一个导航 */
 .landing-header-nav a {
   text-decoration: none;
   color: color-mix(in oklch, var(--app-color-black) 70%, var(--app-color-gray));
 }
+
 /* 导航hover时 */
 .landing-header-nav a:hover {
   color: var(--app-color-blue-light-1);
 }
+
 /* 导航点击时 */
 .landing-header-nav a:active {
   color: var(--app-color-blue-dark-1);
 }
+
 /* 滚动到对应位置时 */
 .landing-header-nav a.active {
   color: var(--app-color-blue);
@@ -944,47 +665,38 @@ onUnmounted(() => observer?.disconnect());
   align-items: center;
   justify-content: center;
 }
+
 /* 快速开始按钮 */
 .landing-header-actions-btn {
-  background: linear-gradient(
-    135deg,
-    var(--app-color-blue-light-2),
-    var(--app-color-purple)
-  );
-  box-shadow: 0 4px 16px
-    color-mix(in oklch, var(--app-color-blue) 20%, transparent);
+  background: linear-gradient(135deg,
+      var(--app-color-blue-light-2),
+      var(--app-color-purple));
+  box-shadow: 0 4px 16px color-mix(in oklch, var(--app-color-blue) 20%, transparent);
   transition: all 0.2s ease;
 }
 /* 快速开始按钮hover时 */
 .landing-header-actions-btn:hover {
-  background: linear-gradient(
-    135deg,
-    var(--app-color-blue-light-3),
-    var(--app-color-purple-light-1)
-  );
-  box-shadow: 0 6px 24px
-    color-mix(in oklch, var(--app-color-purple) 30%, transparent);
+  background: linear-gradient(135deg,
+      var(--app-color-purple-light-1),
+      var(--app-color-blue-light-3));
+  box-shadow: 0 6px 24px color-mix(in oklch, var(--app-color-purple) 30%, transparent);
 }
 /* 快速开始按钮点击时 */
 .landing-header-actions-btn:active {
-  background: linear-gradient(
-    135deg,
-    var(--app-color-blue),
-    var(--app-color-purple-dark-1)
-  );
-  box-shadow: 0 2px 8px
-    color-mix(in oklch, var(--app-color-purple) 30%, transparent);
+  background: linear-gradient(135deg,
+      var(--app-color-purple),
+      var(--app-color-blue-light-2));
+  box-shadow: 0 2px 8px color-mix(in oklch, var(--app-color-purple) 30%, transparent);
   transform: translateY(1px);
 }
 
 /* 产品内容 */
 .landing-page {
-  background: linear-gradient(
-    135deg,
-    var(--app-color-purple),
-    var(--app-color-white-purple)
-  );
+  background: linear-gradient(135deg,
+      var(--app-color-purple),
+      var(--app-color-white-purple));
 }
+
 .landing-page section[id] {
   scroll-margin-top: 10vh;
 }
@@ -1044,61 +756,45 @@ onUnmounted(() => observer?.disconnect());
 
 /* 开始使用按钮 */
 .hero-actions-left {
-  background: linear-gradient(
-    135deg,
-    var(--app-color-blue-light-2),
-    var(--app-color-purple)
-  );
-  box-shadow: 0 4px 16px
-    color-mix(in oklch, var(--app-color-blue) 20%, transparent);
+  background: linear-gradient(135deg,
+      var(--app-color-blue-light-2),
+      var(--app-color-purple));
+  box-shadow: 0 4px 16px color-mix(in oklch, var(--app-color-blue) 20%, transparent);
   transition: all 0.2s ease;
 }
 
 .hero-actions-left:hover {
-  background: linear-gradient(
-    135deg,
-    var(--app-color-blue-light-3),
-    var(--app-color-purple-light-1)
-  );
-  box-shadow: 0 6px 24px
-    color-mix(in oklch, var(--app-color-purple) 30%, transparent);
+  background: linear-gradient(135deg,
+      var(--app-color-purple-light-1),
+      var(--app-color-blue-light-3));
+  box-shadow: 0 6px 24px color-mix(in oklch, var(--app-color-purple) 30%, transparent);
 }
 
 .hero-actions-left:active {
-  background: linear-gradient(
-    135deg,
-    var(--app-color-blue),
-    var(--app-color-purple-dark-1)
-  );
-  box-shadow: 0 2px 8px
-    color-mix(in oklch, var(--app-color-purple) 30%, transparent);
+  background: var(--app-color-blue);
+  box-shadow: 0 2px 8px color-mix(in oklch, var(--app-color-purple) 30%, transparent);
   transform: translateY(1px);
 }
 
 /* 查看产品演示按钮 */
 .hero-actions-right {
   position: relative;
-  padding: var(--btn-padding-y) var(--btn-padding-x) var(--btn-padding-y)
-    calc(2 * var(--btn-padding-x));
+  padding: var(--btn-padding-y) var(--btn-padding-x) var(--btn-padding-y) calc(2 * var(--btn-padding-x));
   background-color: transparent;
   transition: all 0.2s ease;
 }
 
 .hero-actions-right:hover {
-  background-color: color-mix(
-    in oklch,
-    var(--app-color-blue-light-5) 10%,
-    transparent
-  );
+  background-color: color-mix(in oklch,
+      var(--app-color-blue-light-5) 10%,
+      transparent);
   border-color: var(--app-color-white);
 }
 
 .hero-actions-right:active {
-  background-color: color-mix(
-    in oklch,
-    var(--app-color-purple) 12%,
-    transparent
-  );
+  background-color: color-mix(in oklch,
+      var(--app-color-purple) 12%,
+      transparent);
 }
 
 /* 查看产品演示按钮行 */
@@ -1167,8 +863,7 @@ onUnmounted(() => observer?.disconnect());
 .preview-dashboard {
   border-radius: 2vmax;
   overflow: hidden;
-  box-shadow: 0 12px 40px
-    color-mix(in oklch, var(--app-color-blue) 80%, transparent);
+  box-shadow: 0 12px 40px color-mix(in oklch, var(--app-color-blue) 80%, transparent);
   width: 75vw;
 }
 
@@ -1176,11 +871,9 @@ onUnmounted(() => observer?.disconnect());
   padding: 1vh 2vw;
   display: flex;
   justify-content: space-between;
-  background-color: color-mix(
-    in oklab,
-    var(--app-color-white) 60%,
-    transparent
-  );
+  background-color: color-mix(in oklab,
+      var(--app-color-white) 60%,
+      transparent);
 }
 
 .preview-header-logo {
@@ -1199,26 +892,27 @@ onUnmounted(() => observer?.disconnect());
   gap: 2vw;
   font-size: 2vmax;
 }
+
 .preview-header-right-avatar {
   background-color: var(--app-color-blue-light-3);
   width: 2.2vmax;
   height: 2.2vmax;
   border-radius: 100%;
 }
+
 .preview-main {
-  background-color: color-mix(
-    in oklab,
-    var(--app-color-white) 30%,
-    transparent
-  );
+  background-color: color-mix(in oklab,
+      var(--app-color-white) 30%,
+      transparent);
   display: flex;
 }
+
 .preview-main-sidebar {
   font-size: 1.5vmax;
   padding: 2vh 1vw;
-  border-right: 1px solid
-    color-mix(in oklch, var(--app-color-black) 10%, transparent);
+  border-right: 1px solid color-mix(in oklch, var(--app-color-black) 10%, transparent);
 }
+
 .preview-main-sidebar-item {
   padding: 1vh 2vw 1vh 1vw;
   display: flex;
@@ -1226,9 +920,11 @@ onUnmounted(() => observer?.disconnect());
   gap: 1vw;
   border-radius: 1vmax;
 }
+
 .preview-main-sidebar-item:first-child {
   background-color: color-mix(in oklab, var(--app-color-blue) 30%, transparent);
 }
+
 .preview-main-content {
   display: flex;
   flex-direction: column;
@@ -1237,18 +933,22 @@ onUnmounted(() => observer?.disconnect());
   padding: 2vh 2vw;
   flex: 1;
 }
+
 .preview-main-content-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
+
 .preview-main-content-header-welcome {
   font-size: 2vmax;
   font-weight: bold;
 }
+
 .preview-main-content-header-subtitle {
   font-size: 1vmax;
 }
+
 .preview-main-content-header-date {
   border-radius: 1vmax;
   padding: 1vh 1vw;
@@ -1257,42 +957,45 @@ onUnmounted(() => observer?.disconnect());
   gap: 0.5vw;
   font-size: 1vmax;
 }
+
 .preview-main-content-stats {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
+
 .preview-main-content-stats-card {
-  background-color: color-mix(
-    in oklab,
-    var(--app-color-white) 60%,
-    transparent
-  );
+  background-color: color-mix(in oklab,
+      var(--app-color-white) 60%,
+      transparent);
   border-radius: 1vmax;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
   padding: 1vh 3vw 1vh 1vw;
 }
+
 .preview-main-content-stats-card-label {
   font-size: 1.2vmax;
   font-weight: bold;
 }
+
 .preview-main-content-stats-card-value {
   font-size: 1.5vmax;
   font-weight: bold;
 }
+
 .preview-main-content-stats-card-trend {
   font-size: 1vmax;
 }
+
 .preview-body {
   display: flex;
   gap: 2vw;
 }
+
 .preview-body-chart-card {
-  background-color: color-mix(
-    in oklab,
-    var(--app-color-white) 60%,
-    transparent
-  );
+  background-color: color-mix(in oklab,
+      var(--app-color-white) 60%,
+      transparent);
   padding: 1vh 1vw;
   border-radius: 1vmax;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
@@ -1302,55 +1005,64 @@ onUnmounted(() => observer?.disconnect());
   flex: 2;
   min-width: 0;
 }
+
 .preview-body-chart-card-title {
   font-size: 1.1vmax;
   font-weight: bold;
 }
+
 .chart-legend {
   display: flex;
   justify-content: flex-end;
   gap: 1vw;
 }
+
 .legend-item {
   display: flex;
   align-items: center;
   font-size: 1vmax;
   gap: 0.5vw;
 }
+
 .legend-line {
   width: 2vw;
   height: 0.8vh;
   border-radius: 0.8vh;
 }
+
 .color-blue {
   background-color: var(--app-color-blue);
 }
+
 .color-purple {
   background-color: var(--app-color-purple);
 }
+
 .color-green {
   background-color: var(--app-color-green);
 }
+
 .preview-body-chart {
   width: 100%;
 }
+
 .preview-chart-svg {
   width: 100%;
   height: 100%;
   display: block;
 }
+
 .preview-new-card {
-  background-color: color-mix(
-    in oklab,
-    var(--app-color-white) 60%,
-    transparent
-  );
+  background-color: color-mix(in oklab,
+      var(--app-color-white) 60%,
+      transparent);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
   border-radius: 1vmax;
   padding: 1vh 1vw;
   flex: 1;
   min-width: 0;
 }
+
 .preview-new-card-title {
   font-size: 1.3vmax;
   font-weight: bold;
@@ -1359,11 +1071,13 @@ onUnmounted(() => observer?.disconnect());
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
 .preview-new-card-list {
   display: flex;
   flex-direction: column;
   gap: 1vh;
 }
+
 .preview-new-card-list-item-title {
   font-size: 1.2vmax;
   font-weight: bold;
@@ -1371,19 +1085,23 @@ onUnmounted(() => observer?.disconnect());
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
 .preview-new-card-list-item-desc {
   font-size: 1vmax;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
 .preview-new-card-list-item-date {
   font-size: 1vmax;
   color: var(--app-color-gray);
 }
+
 .features {
   padding: 5vh 8vw;
 }
+
 .feature-header {
   display: flex;
   flex-direction: column;
@@ -1391,38 +1109,41 @@ onUnmounted(() => observer?.disconnect());
   justify-content: center;
   padding: 0 0 3vh 0;
 }
+
 .feature-title {
   font-size: 2.5vmax;
   font-weight: bold;
 }
+
 .feature-subtitle {
   font-size: 1.5vmax;
 }
+
 .feature-card-list {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 4vw;
 }
+
 .feature-card {
-  background-color: color-mix(
-    in oklab,
-    var(--app-color-white) 60%,
-    transparent
-  );
+  background-color: color-mix(in oklab,
+      var(--app-color-white) 60%,
+      transparent);
   border-radius: 1vmax;
-  box-shadow: 0 12px 40px
-    color-mix(in oklch, var(--app-color-blue) 80%, transparent);
+  box-shadow: 0 12px 40px color-mix(in oklch, var(--app-color-blue) 80%, transparent);
   display: flex;
   flex-direction: column;
   gap: 1vh;
   padding: 2vh 2vw;
 }
+
 .feature-card-header {
   display: flex;
   align-items: center;
   gap: 1vw;
   font-size: 1.5vmax;
 }
+
 .feature-card-header-icon {
   width: 3vmax;
   height: 3vmax;
@@ -1431,40 +1152,39 @@ onUnmounted(() => observer?.disconnect());
   align-items: center;
   justify-content: center;
 }
+
 .icon-blue-lighter {
-  background-color: color-mix(
-    in oklch,
-    var(--app-color-blue) 30%,
-    var(--app-color-white-blue)
-  );
+  background-color: color-mix(in oklch,
+      var(--app-color-blue) 30%,
+      var(--app-color-white-blue));
 }
+
 .icon-blue-light {
-  background-color: color-mix(
-    in oklch,
-    var(--app-color-blue) 40%,
-    var(--app-color-white-blue)
-  );
+  background-color: color-mix(in oklch,
+      var(--app-color-blue) 40%,
+      var(--app-color-white-blue));
 }
+
 .icon-purple-light {
-  background-color: color-mix(
-    in oklch,
-    var(--app-color-purple) 40%,
-    var(--app-color-white-purple)
-  );
+  background-color: color-mix(in oklch,
+      var(--app-color-purple) 40%,
+      var(--app-color-white-purple));
 }
+
 .icon-green-light {
-  background-color: color-mix(
-    in oklch,
-    var(--app-color-green) 40%,
-    var(--app-color-white-green)
-  );
+  background-color: color-mix(in oklch,
+      var(--app-color-green) 40%,
+      var(--app-color-white-green));
 }
+
 .feature-card-header-icon svg {
   display: block;
 }
+
 .feature-card-title {
   font-weight: bold;
 }
+
 .feature-card-desc {
   font-size: 1.2vmax;
 }
@@ -1472,6 +1192,7 @@ onUnmounted(() => observer?.disconnect());
 .workflow {
   padding: 5vh 8vw;
 }
+
 .workflow-header {
   display: flex;
   flex-direction: column;
@@ -1479,19 +1200,23 @@ onUnmounted(() => observer?.disconnect());
   justify-content: center;
   padding: 0 0 3vh 0;
 }
+
 .workflow-header-title {
   font-size: 2.5vmax;
   font-weight: bold;
 }
+
 .workflow-header-subtitle {
   font-size: 1.5vmax;
 }
+
 .workflow-steps {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 3vw;
 }
+
 .workflow-steps-item {
   display: flex;
   flex-direction: column;
@@ -1499,6 +1224,7 @@ onUnmounted(() => observer?.disconnect());
   justify-content: center;
   gap: 1vh;
 }
+
 .workflow-steps-icon {
   width: 5vmax;
   height: 5vmax;
@@ -1507,18 +1233,22 @@ onUnmounted(() => observer?.disconnect());
   align-items: center;
   justify-content: center;
 }
+
 .workflow-steps-icon svg {
   width: 60%;
   height: 60%;
   display: block;
 }
+
 .workflow-steps-item-title {
   font-size: 1.5vmax;
   font-weight: bold;
 }
+
 .workflow-steps-item-desc {
   font-size: 1.2vmax;
 }
+
 .steps-arrow {
   font-size: 2vmax;
 }

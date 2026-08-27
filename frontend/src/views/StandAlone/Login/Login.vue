@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive } from "vue";
+import { useAuth } from "@/composables/useAuth";
 import { useRouter } from "vue-router";
 import {
   User,
@@ -9,30 +10,52 @@ import {
   ArrowRight,
 } from "@element-plus/icons-vue";
 import { Radar } from "@/components/Icons";
-import BrandPanel from "@/components/Login/BrandPanel.vue";
+import BrandPanel from "@/views/StandAlone/Login/BrandPanel.vue";
+import { ElMessage } from "element-plus";
 
 const router = useRouter();
 
 /** 当前 Tab（纯静态切换） */
 const activeTab = ref<"login" | "register">("login");
 
-// 表单数据：里程碑 4 接 JWT 时用于提交，目前仅静态展示
+// 表单数据
 const loginForm = reactive({ account: "", password: "", remember: false });
 const registerForm = reactive({
-  username: "",
-  email: "",
+  account: "",
   password: "",
   confirm: "",
 });
+const {
+  login: doLogin,
+  register: doRegister,
+  loading: loginLoading,
+} = useAuth();
 
-// TODO(里程碑4): 登录提交 → authApi.login() 拿 JWT 存 Pinia
+// 登录提交
 const onLogin = () => {
-  router.replace({ name: "AppLayout" });
+  doLogin({ account: loginForm.account, password: loginForm.password });
 };
-// TODO(里程碑4): 注册提交 → authApi.register()
-const onRegister = () => {};
+
+// 注册提交
+const onRegister = async () => {
+  const { account, password, confirm } = registerForm;
+  if (!account.trim() || !password) {
+    ElMessage.warning("请填写账号和密码");
+    return;
+  }
+  if (password.length < 6) {
+    ElMessage.warning("密码至少 6 位");
+    return;
+  }
+  if (password !== confirm) {
+    ElMessage.warning("两次输入的密码不一致");
+    return;
+  }
+  await doRegister({ account: account.trim(), password });
+};
+
 // TODO: 第三方登录（GitHub OAuth / 微信扫码 / 邮箱验证码）
-const onOAuth = (provider: "github" | "wechat" | "email") => {
+const onOAuth = (provider: "qq" | "wechat" | "email") => {
   console.log("oauth:", provider);
 };
 </script>
@@ -47,9 +70,16 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
     <!-- 右侧表单面板 -->
     <section class="form-panel">
       <div class="form-top">
-        <a class="form-link" @click="router.push({ name: 'LandingPage' })">
-          < 返回首页
-        </a>
+        <el-button
+          class="form-link back-btn"
+          link
+          @click="router.push({ name: 'Landing' })"
+        >
+          <el-icon>
+            <ArrowLeft />
+          </el-icon>
+          返回首页
+        </el-button>
       </div>
 
       <div class="form-brand">
@@ -86,7 +116,7 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
         <el-input
           v-model="loginForm.account"
           :prefix-icon="User"
-          placeholder="请输入用户名或邮箱"
+          placeholder="请输入账号"
           size="large"
         />
         <el-input
@@ -99,26 +129,27 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
         />
         <div class="form-row">
           <el-checkbox v-model="loginForm.remember">记住我</el-checkbox>
-          <a class="form-link">忘记密码？</a>
+          <el-button class="form-link forgot-btn" link>忘记密码？</el-button>
         </div>
-        <el-button class="submit-btn" type="primary" @click="onLogin">
+        <el-button
+          class="submit-btn"
+          type="primary"
+          :loading="loginLoading"
+          @click="onLogin"
+        >
           登录
-          <el-icon><ArrowRight /></el-icon>
+          <el-icon>
+            <ArrowRight />
+          </el-icon>
         </el-button>
       </div>
 
       <!-- 注册表单（静态） -->
       <div v-show="activeTab === 'register'" class="form-body">
         <el-input
-          v-model="registerForm.username"
+          v-model="registerForm.account"
           :prefix-icon="User"
-          placeholder="请输入用户名"
-          size="large"
-        />
-        <el-input
-          v-model="registerForm.email"
-          :prefix-icon="Message"
-          placeholder="请输入邮箱"
+          placeholder="请输入账号"
           size="large"
         />
         <el-input
@@ -145,14 +176,16 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
       <!-- 第三方登录 -->
       <div class="divider"><span>其他登录方式</span></div>
       <div class="oauth-row">
-        <button class="oauth-btn" @click="onOAuth('github')">
-          <svg viewBox="0 0 24 24" fill="currentColor">
+        <button class="oauth-btn" @click="onOAuth('qq')">
+          <svg viewBox="0 0 1024 1024" fill="#12B7F5">
             <path
-              d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1.17-.02-2.12-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.69 1.25 3.35.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.05 0 0 .96-.31 3.15 1.18a10.9 10.9 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.59.23 2.76.11 3.05.73.81 1.18 1.83 1.18 3.09 0 4.41-2.7 5.38-5.26 5.67.41.35.77 1.05.77 2.12 0 1.53-.01 2.76-.01 3.14 0 .3.2.67.8.55A10.52 10.52 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"
-            />
+              d="M824.8 613.2c-16-51.4-34.4-94.6-62.7-165.3C766.5 262.2 689.3 112 511.5 112 331.7 112 256.2 265.2 261 447.9c-28.4 70.8-46.7 113.7-62.7 165.3-34 109.5-23 154.8-14.6 155.8 18 2.2 70.1-82.4 70.1-82.4 0 49 25.2 112.9 79.8 159-26.4 8.1-85.7 29.9-71.6 53.8 11.4 19.3 196.2 12.3 249.5 6.3 53.3 6 238.1 13 249.5-6.3 14.1-23.8-45.3-45.7-71.6-53.8 54.6-46.2 79.8-110.1 79.8-159 0 0 52.1 84.6 70.1 82.4 8.5-1.1 19.5-46.4-14.5-155.8z"
+              p-id="9486"
+            ></path>
           </svg>
-          GitHub
+          QQ
         </button>
+
         <button class="oauth-btn" @click="onOAuth('wechat')">
           <svg viewBox="0 0 24 24" fill="#07C160">
             <path
@@ -165,14 +198,21 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
           微信
         </button>
         <button class="oauth-btn" @click="onOAuth('email')">
-          <el-icon><Message /></el-icon>
-          邮箱登录
+          <el-icon>
+            <Message />
+          </el-icon>
+          邮箱
         </button>
       </div>
 
       <div class="form-footer">
         还没有账号？
-        <a class="form-link" @click="activeTab = 'register'">立即注册</a>
+        <el-button
+          class="form-link register-btn"
+          link
+          @click="activeTab = 'register'"
+          >立即注册</el-button
+        >
       </div>
     </section>
   </div>
@@ -189,15 +229,16 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
     var(--app-color-blue),
     var(--app-color-white-blue)
   );
-  height: 90vh;
+  height: 100vh;
 }
-.brand-panel{
-    flex: 1;
+
+.brand-panel {
+  flex: 1;
 }
 
 /* 右侧表单面板 */
 .form-panel {
-  width: 25vw;
+  width: 30vw;
   border: 1px solid color-mix(in oklch, var(--app-color-blue) 50%, transparent);
   border-radius: 2vmax;
   box-shadow: 0 6px 24px
@@ -206,18 +247,28 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
   flex-direction: column;
   padding: 3vh 3vw;
 }
+
 .form-top {
   display: flex;
   justify-content: flex-end;
 }
+
 .form-link {
   align-items: center;
-  font-size: 1.2vmax;
+  padding: 1vh 1vw;
   color: var(--app-color-blue);
-  cursor: pointer;
 }
+
 .form-link:hover {
   color: var(--app-color-blue-light-1);
+}
+
+.form-link:active {
+  color: var(--app-color-blue-dark-1);
+}
+
+.back-btn {
+  font-size: 1.2vmax;
 }
 
 .form-brand {
@@ -228,6 +279,7 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
   margin-top: 2vh;
   font-size: 1.5vmax;
 }
+
 .form-brand-name {
   font-weight: bold;
   background: linear-gradient(
@@ -254,6 +306,7 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
   background-clip: text;
   color: transparent;
 }
+
 .form-subtitle {
   margin: 0.8vh 0 0;
   text-align: center;
@@ -270,6 +323,7 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
     color-mix(in oklch, var(--app-color-gray) 20%, transparent);
   position: relative;
 }
+
 /* 指示器：挂在容器上，只有一条 */
 .form-tabs::after {
   content: "";
@@ -283,6 +337,7 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
   transform: translateX(calc(var(--tab-index) * 100%));
   transition: transform 0.3s ease;
 }
+
 .form-tab {
   flex: 1;
   background: none;
@@ -293,6 +348,7 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
   color: var(--app-text-color-secondary);
   position: relative;
 }
+
 .form-tab.active {
   color: var(--app-color-blue);
   font-weight: bold;
@@ -305,32 +361,44 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
   gap: 2vh;
   padding: 2.5vh 0;
 }
+
 .form-body :deep(.el-input__wrapper) {
   background-color: transparent;
   border: 1px solid color-mix(in oklch, var(--app-color-blue) 80%, transparent);
 }
+
 .form-body :deep(.el-input__wrapper:hover) {
   border-color: var(--app-color-blue);
 }
+
 .form-body :deep(.el-input__inner) {
   color: var(--app-color-black);
 }
+
 .form-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
+
+.forgot-btn {
+  font-size: 1vmax;
+}
+
 .form-body :deep(.el-checkbox__inner) {
   background-color: transparent;
   border: 1px solid color-mix(in oklch, var(--app-color-blue) 50%, transparent);
 }
+
 .form-body :deep(.el-checkbox.is-checked .el-checkbox__inner) {
   border-color: var(--app-color-blue);
 }
 
-/* 登录/注册按钮：局部覆盖 global.css 的全胶囊圆角 */
+/* 登录/注册按钮：样式由全局移入本页（原先依赖 global.css 的 .el-button 字号） */
 .submit-btn {
   --el-border-radius-base: 0.8vmax;
+  font-size: 1.5vmax;
+  height: auto;
   width: 100%;
   margin: 0;
   border: none;
@@ -343,6 +411,7 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
     color-mix(in oklch, var(--app-color-blue) 20%, transparent);
   transition: all 0.2s ease;
 }
+
 .submit-btn:hover {
   background: linear-gradient(
     135deg,
@@ -352,10 +421,15 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
   box-shadow: 0 6px 24px
     color-mix(in oklch, var(--app-color-purple) 30%, transparent);
 }
+
 .submit-btn:active {
   box-shadow: 0 2px 8px
     color-mix(in oklch, var(--app-color-purple) 30%, transparent);
   transform: translateY(1px);
+}
+
+.register-btn {
+  font-size: 1vmax;
 }
 
 /* 分隔线 */
@@ -366,6 +440,7 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
   font-size: 1vmax;
   color: var(--app-color-gray);
 }
+
 .divider::before,
 .divider::after {
   content: "";
@@ -380,6 +455,7 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
   gap: 1vw;
   margin-top: 1.5vh;
 }
+
 .oauth-btn {
   flex: 1;
   display: flex;
@@ -395,14 +471,17 @@ const onOAuth = (provider: "github" | "wechat" | "email") => {
   cursor: pointer;
   transition: all 0.2s ease;
 }
+
 .oauth-btn:hover {
   border-color: var(--app-color-blue-light-2);
   background: var(--app-color-blue-light-5);
 }
+
 .oauth-btn:active {
   border-color: var(--app-color-blue);
   background: var(--app-color-blue-light-4);
 }
+
 .oauth-btn svg {
   width: 1.5em;
   height: 1.5em;

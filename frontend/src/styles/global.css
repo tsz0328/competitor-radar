@@ -131,34 +131,9 @@ html.dark {
   /* 阶梯色全部自动适配，无需逐个重写 */
 }
 
-/* 全局覆盖 Element Plus 默认按钮字号、圆角、内边距 */
-.el-button {
-  --el-font-size-base: 1.5vmax;
-  --el-border-radius-base: 100vmax;
-  --btn-padding-y: 1vh;
-  --btn-padding-x: 1.6vw;
-  --scale: 1;
-
-  height: auto;
-  font-size: var(--el-font-size-base);
-  border-radius: var(--el-border-radius-base);
-  padding: var(--btn-padding-y) var(--btn-padding-x);
-}
+/* 按钮字号、圆角、内边距均由各页面自行定义 */
 .el-button + .el-button {
   margin-left: 1.2vw;
-}
-/* small / default / large 之间保持比例关系 */
-.el-button--small {
-  --scale: 0.8;
-  font-size: calc(var(--el-font-size-base) * var(--scale));
-  padding: calc(var(--btn-padding-y) * var(--scale))
-    calc(var(--btn-padding-x) * var(--scale));
-}
-.el-button--large {
-  --scale: 1.2;
-  font-size: calc(var(--el-font-size-base) * var(--scale));
-  padding: calc(var(--btn-padding-y) * var(--scale))
-    calc(var(--btn-padding-x) * var(--scale));
 }
 /* 全局统一 checkbox 尺寸（方块 + 文字），登录页等共用 */
 .el-checkbox__inner {

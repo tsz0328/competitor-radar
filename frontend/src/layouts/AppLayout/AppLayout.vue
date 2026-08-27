@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import SideNav from '@/components/layout/SideNav.vue'
-import TopBar from '@/components/layout/TopBar.vue'
+import SideNav from '@/layouts/AppLayout/SideNav.vue'
+import TopBar from '@/layouts/AppLayout/TopBar.vue'
 </script>
 <template>
   <div class="app-layout">
@@ -29,20 +29,24 @@ import TopBar from '@/components/layout/TopBar.vue'
 }
 .aside {
   width: 15vw;
+  flex-shrink: 0;
   height: 100%;
-  background-color: color-mix(in oklch, var(--app-color-blue-light-5) 30%, transparent);
+  background: linear-gradient(135deg, var(--app-color-white), var(--app-color-purple));
 }
 .container {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
 .header {
   height: 8vh;
-  background-color: color-mix(in oklch, var(--app-color-blue-light-4) 30%, transparent);
+  flex-shrink: 0;
+  background: linear-gradient(135deg, var(--app-color-blue-light-1), var(--app-color-purple-light-1));
 }
 .main {
   flex: 1;
-  background-color: color-mix(in oklch, var(--app-color-blue-light-5) 30%, transparent);
+  min-height: 0;
+  background: linear-gradient(135deg, var(--app-color-white), var(--app-color-blue));
 }
 </style>
