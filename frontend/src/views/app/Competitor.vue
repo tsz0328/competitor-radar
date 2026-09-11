@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
+import { ElMessage, ElMessageBox, ElNotification } from "element-plus";
 import { useCompetitorStore } from "@/stores/competitor";
-import type { CompetitorItem } from "@/types/competitor";
+import type { CompetitorItem, CrawlResult } from "@/types/competitor";
+import CompetitorFormDialog from "@/components/CompetitorFormDialog.vue";
+import CompetitorLogo from "@/components/CompetitorLogo.vue";
 import {
   Search,
   Grid,
   List as ListIcon,
   Edit,
-  More,
   Delete,
+  Plus,
+  Refresh,
 } from "@element-plus/icons-vue";
 
 const store = useCompetitorStore();
@@ -17,6 +21,10 @@ const keyword = ref("");
 const statusFilter = ref("");
 const categoryFilter = ref("");
 const viewMode = ref<"list" | "grid">("list");
+const dialogVisible = ref(false);
+const editingCompetitor = ref<CompetitorItem | null>(null);
+// 正在抓取的竞品 id：用于按钮 loading，并阻止并发抓取
+const crawlingId = ref<number | null>(null);
 const page = ref(1);
 const pageSize = ref(10);
 
@@ -47,7 +55,7 @@ const filteredList = computed(() => {
       item.name.toLowerCase().includes(k) ||
       item.domain.toLowerCase().includes(k);
     const matchStatus =
-      !statusFilter.value || item.status === statusFilter.value;
+      !statusFilter.value || item.statusLabel === statusFilter.value;
     const matchCategory =
       !categoryFilter.value || item.category === categoryFilter.value;
     return matchKeyword && matchStatus && matchCategory;
@@ -67,6 +75,95 @@ function categoryClass(item: CompetitorItem) {
 
 function statusClass(item: CompetitorItem) {
   return `status-${item.statusType}`;
+}
+
+/** 列表里只展示干净的主机名，如 https://www.notion.so → notion.so */
+function displayDomain(domain: string) {
+  const host = (domain || "")
+    .replace(/^https?:\/\//i, "")
+    .split("/")[0]
+    .replace(/^www\./i, "");
+  return host || "—";
+}
+
+function openCreate() {
+  editingCompetitor.value = null;
+  dialogVisible.value = true;
+}
+
+function openEdit(item: CompetitorItem) {
+  editingCompetitor.value = item;
+  dialogVisible.value = true;
+}
+
+/** 删除后若当前页已空，自动回退一页，避免停在空白页 */
+function clampPage() {
+  const maxPage = Math.max(1, Math.ceil(total.value / pageSize.value));
+  if (page.value > maxPage) page.value = maxPage;
+}
+
+async function handleDelete(item: CompetitorItem) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除「${item.name}」吗？该竞品的监控配置与历史快照将一并删除，且不可恢复。`,
+      "删除竞品",
+      {
+        type: "warning",
+        confirmButtonText: "确认删除",
+        cancelButtonText: "取消",
+        confirmButtonClass: "el-button--danger",
+        draggable: true,
+      },
+    );
+  } catch {
+    return; // 用户点击取消
+  }
+  await store.removeCompetitor(item.id);
+  ElMessage.success(`已删除「${item.name}」`);
+  clampPage();
+}
+
+/** 抓取结果反馈：失败优先提醒，其次报告变化，都没有则轻提示"暂无变化" */
+function reportCrawlResult(item: CompetitorItem, result: CrawlResult) {
+  const failed = result.results.filter((r) => r.status === "failed");
+  const changed = result.results.filter((r) => r.changed);
+  const firstTime = result.results.filter((r) => r.firstTime);
+
+  if (failed.length) {
+    ElNotification({
+      title: `${item.name}：${failed.length} 个页面抓取失败`,
+      type: "warning",
+      duration: 8000,
+      message: failed
+        .map((r) => `${r.sourceName}：${r.error ?? "未知原因"}`)
+        .join("；"),
+    });
+  }
+  if (changed.length) {
+    ElNotification({
+      title: `${item.name}：发现 ${changed.length} 处变化`,
+      type: "success",
+      duration: 6000,
+      message: `变化页面：${changed.map((r) => r.sourceName).join("、")}`,
+    });
+  }
+  if (!failed.length && !changed.length) {
+    const baseline = firstTime.length ? `，其中 ${firstTime.length} 个已建立基准` : "";
+    ElMessage.success(`已抓取 ${result.total} 个页面，暂无变化${baseline}`);
+  }
+}
+
+async function handleCrawl(item: CompetitorItem) {
+  if (crawlingId.value) return; // 同时只跑一个抓取任务，避免重复请求目标站点
+  crawlingId.value = item.id;
+  try {
+    const result = await store.runCrawl(item.id);
+    reportCrawlResult(item, result);
+  } catch {
+    // 失败提示已由 request.ts 拦截器统一弹出，这里只需复位状态
+  } finally {
+    crawlingId.value = null;
+  }
 }
 </script>
 
@@ -126,7 +223,13 @@ function statusClass(item: CompetitorItem) {
             <el-icon><Grid /></el-icon>
           </el-button>
         </el-button-group>
-        <el-button type="primary">新增竞品</el-button>
+        <el-button
+          type="primary"
+          :icon="Plus"
+          @click="openCreate"
+        >
+          新增竞品
+        </el-button>
       </div>
     </div>
 
@@ -140,11 +243,11 @@ function statusClass(item: CompetitorItem) {
         <el-table-column label="竞品信息" min-width="260">
           <template #default="{ row }">
             <div class="competitor-info">
-              <el-avatar
+              <CompetitorLogo
+                :name="row.name"
+                :domain="row.domain"
                 :src="row.logoUrl"
                 :size="44"
-                shape="square"
-                class="logo"
               />
               <div class="competitor-meta">
                 <div class="competitor-name">
@@ -158,7 +261,9 @@ function statusClass(item: CompetitorItem) {
                   >
                 </div>
                 <div class="competitor-desc">{{ row.desc }}</div>
-                <div class="competitor-domain">{{ row.domain }}</div>
+                <div class="competitor-domain">
+                  {{ displayDomain(row.domain) }}
+                </div>
               </div>
             </div>
           </template>
@@ -196,7 +301,7 @@ function statusClass(item: CompetitorItem) {
                 class="status-tag"
               >
                 <span class="status-dot" :class="row.statusType" />
-                {{ row.status }}
+                {{ row.statusLabel }}
               </el-tag>
               <div class="status-desc">{{ row.statusDesc }}</div>
             </div>
@@ -214,10 +319,27 @@ function statusClass(item: CompetitorItem) {
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" min-width="120" fixed="right">
+        <el-table-column label="操作" min-width="200" fixed="right">
           <template #default="{ row }: { row: CompetitorItem }">
             <div class="actions">
-              <el-button link type="primary" :icon="Edit" />
+              <el-tooltip content="立即抓取" placement="top" :show-after="300">
+                <el-button
+                  link
+                  type="primary"
+                  :icon="Refresh"
+                  :loading="crawlingId === row.id"
+                  :disabled="crawlingId !== null && crawlingId !== row.id"
+                  @click="handleCrawl(row)"
+                />
+              </el-tooltip>
+              <el-tooltip content="编辑" placement="top" :show-after="300">
+                <el-button
+                  link
+                  type="primary"
+                  :icon="Edit"
+                  @click="openEdit(row)"
+                />
+              </el-tooltip>
               <el-switch
                 v-model="row.enabled"
                 @change="store.toggleMonitor(row.id)"
@@ -225,7 +347,14 @@ function statusClass(item: CompetitorItem) {
                 active-text="开启"
                 inactive-text="关闭"
               />
-              <el-button link type="danger" :icon="Delete" />
+              <el-tooltip content="删除" placement="top" :show-after="300">
+                <el-button
+                  link
+                  type="danger"
+                  :icon="Delete"
+                  @click="handleDelete(row)"
+                />
+              </el-tooltip>
             </div>
           </template>
         </el-table-column>
@@ -245,11 +374,11 @@ function statusClass(item: CompetitorItem) {
         >
           <div class="competitor-card">
             <div class="card-header">
-              <el-avatar
+              <CompetitorLogo
+                :name="item.name"
+                :domain="item.domain"
                 :src="item.logoUrl"
                 :size="48"
-                shape="square"
-                class="logo"
               />
               <div class="card-title">
                 <div class="name">{{ item.name }}</div>
@@ -270,7 +399,7 @@ function statusClass(item: CompetitorItem) {
               <span class="label">状态</span>
               <el-tag :class="statusClass(item)" size="small" effect="light">
                 <span class="status-dot" :class="item.statusType" />
-                {{ item.status }}
+                {{ item.statusLabel }}
               </el-tag>
             </div>
             <div class="card-row">
@@ -282,7 +411,24 @@ function statusClass(item: CompetitorItem) {
               >
             </div>
             <div class="card-actions">
-              <el-button link type="primary" :icon="Edit" />
+              <el-tooltip content="立即抓取" placement="top" :show-after="300">
+                <el-button
+                  link
+                  type="primary"
+                  :icon="Refresh"
+                  :loading="crawlingId === item.id"
+                  :disabled="crawlingId !== null && crawlingId !== item.id"
+                  @click="handleCrawl(item)"
+                />
+              </el-tooltip>
+              <el-tooltip content="编辑" placement="top" :show-after="300">
+                <el-button
+                  link
+                  type="primary"
+                  :icon="Edit"
+                  @click="openEdit(item)"
+                />
+              </el-tooltip>
               <el-switch
                 v-model="item.enabled"
                 inline-prompt
@@ -290,7 +436,14 @@ function statusClass(item: CompetitorItem) {
                 inactive-text="关闭"
                 @change="store.toggleMonitor(item.id)"
               />
-              <el-button link type="danger" :icon="Delete" />
+              <el-tooltip content="删除" placement="top" :show-after="300">
+                <el-button
+                  link
+                  type="danger"
+                  :icon="Delete"
+                  @click="handleDelete(item)"
+                />
+              </el-tooltip>
             </div>
           </div>
         </el-col>
@@ -309,6 +462,12 @@ function statusClass(item: CompetitorItem) {
         background
       />
     </div>
+
+    <!-- 新增 / 编辑竞品弹窗 -->
+    <CompetitorFormDialog
+      v-model="dialogVisible"
+      :competitor="editingCompetitor"
+    />
   </div>
 </template>
 
@@ -366,11 +525,6 @@ function statusClass(item: CompetitorItem) {
   display: flex;
   align-items: center;
   gap: 0.8vw;
-}
-.logo {
-  border-radius: 0.6vmax;
-  background: var(--app-color-blue-light-5);
-  flex-shrink: 0;
 }
 .competitor-meta {
   display: flex;

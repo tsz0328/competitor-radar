@@ -169,7 +169,7 @@ const rawEventRecords: EventRecord[] = [
 
 export default [
   {
-    url: "/api/competitors/events",
+    url: "/api/events",
     method: "get",
     timeout: 300, // 模拟网络延迟
     response: () => ({
@@ -178,7 +178,7 @@ export default [
     }),
   },
   {
-    url: "/api/events/list",
+    url: "/api/events?limit=1",
     method: "get",
     timeout: 300,
     response: () => ({

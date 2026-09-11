@@ -40,6 +40,15 @@ export interface EventRecord {
   tagType: string;
   title: string;
   desc: string;
+  /** AI 生成的完整说明（详情抽屉用；列表用的是其短版 desc） */
+  summary?: string;
+  /** 归属竞品 id（右侧竞品筛选用） */
+  competitorId?: number;
+  /** 来源页面名，如 定价页 */
+  source?: string;
+  /** 竞品官网地址 */
+  competitorDomain?: string;
+  eventType?: string;
   /** 关键词标签 */
   keywords: string[];
   /** AI 置信度 0-100 */
@@ -68,4 +77,15 @@ export interface EventSummary {
 export interface EventListResult {
   summary: EventSummary;
   records: EventRecord[];
+}
+
+/** 事件详情：在列表字段之外补上差异原文与相关地址 */
+export interface EventDetail extends EventRecord {
+  /** 竞品官网 */
+  url?: string | null;
+  /** 真正发生变化的那张页面 */
+  sourceUrl?: string | null;
+  /** difflib 差异原文（unified diff） */
+  diffDetail?: string | null;
+  createdAt?: string;
 }

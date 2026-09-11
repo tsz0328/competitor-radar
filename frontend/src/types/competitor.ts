@@ -17,7 +17,7 @@ export interface CompetitorItem {
   pages: string[];
   /** 折叠的额外页面数量 */
   extraPages: number;
-  /** 监控频率，如 每天 08:00 */
+  /** 监控频率，如 每天 */
   frequency: string;
   frequencyDesc: string;
   /** 最近抓取相对时间，如 2 小时前 */
@@ -26,12 +26,96 @@ export interface CompetitorItem {
   lastFetchTime: string;
   /** 监控开关：true=开启，false=暂停 */
   enabled: boolean;
-  /** 状态：监控中 / 监控异常 / 已暂停 */
-  status: string;
+  /** 展示用中文状态：监控中 / 已暂停 */
+  statusLabel: string;
   statusType: "success" | "warning" | "info";
   statusDesc: string;
   /** 最近变化条数 */
   changes: number;
   /** 今日新增变化 */
   todayChanges: number;
+  /** 该竞品下的监控源（详情/编辑用） */
+  sources?: MonitorSourceItem[];
 }
+
+/** v1 支持的数据源类型（与后端 SOURCE_TYPE_REGISTRY 对齐） */
+export type SourceType =
+  | "homepage"
+  | "pricing"
+  | "changelog"
+  | "blog"
+  | "docs"
+  | "status"
+  | "rss"
+  | "app_store";
+
+/** 后端返回的"可选监控页面"目录项 */
+export interface SourceTypeOption {
+  type: SourceType;
+  label: string;
+  render: "browser" | "http";
+  defaultIntervalMinutes: number;
+  llmHint: string;
+}
+
+/** 新增竞品时提交的单个监控源 */
+export interface MonitorSourceInput {
+  sourceType: SourceType;
+  url?: string;
+  name?: string;
+  intervalMinutes?: number;
+}
+
+/** 后端返回的监控源实体 */
+export interface MonitorSourceItem {
+  id: number;
+  competitorId: number;
+  sourceType: SourceType;
+  label: string;
+  name: string;
+  url: string;
+  renderMode: "browser" | "http";
+  intervalMinutes: number;
+  enabled: boolean;
+  lastStatus?: string | null;
+  lastError?: string | null;
+  failCount?: number;
+  lastCrawledAt?: string | null;
+}
+
+/** 单个监控源的抓取结果 */
+export interface CrawlSourceResult {
+  sourceId: number;
+  sourceName: string;
+  sourceType: SourceType;
+  status: "success" | "failed";
+  httpStatus?: number | null;
+  /** 相比上次基准是否发生变化 */
+  changed: boolean;
+  /** 是否本次才首次抓取（建立基准，不算变化） */
+  firstTime: boolean;
+  error?: string | null;
+  durationMs: number;
+}
+
+/** 一次「立即抓取」的汇总结果 */
+export interface CrawlResult {
+  competitorId: number;
+  total: number;
+  succeeded: number;
+  failed: number;
+  changed: number;
+  results: CrawlSourceResult[];
+}
+
+/** 新增竞品的请求体 */
+export interface CompetitorCreatePayload {
+  name: string;
+  officialUrl: string;
+  category?: string;
+  description?: string;
+  sources?: MonitorSourceInput[];
+}
+
+/** 编辑竞品的请求体（PATCH，语义为局部更新） */
+export type CompetitorUpdatePayload = CompetitorCreatePayload;

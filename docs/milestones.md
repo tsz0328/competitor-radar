@@ -137,33 +137,47 @@ AI-COMPETITOR-RADAR
 - [x] `README.md`（项目简介 + 技术栈 + 开发计划）
 - [x] `docs/architecture.md`（技术方案）、`docs/page-design.md`（首页设计）、`docs/milestones.md`（本文件）
 
-### 里程碑 2：搭建前端脚手架（🔧 进行中）
+### 里程碑 2：搭建前端脚手架（✅ 已完成）
 - [x] **配置层**：`package.json` / `vite.config.ts`(`@` 别名 + `/api` 代理) / `tsconfig.json` / `index.html` / `env.d.ts`
 - [x] **应用入口与外壳**：`main.ts`（挂 Pinia/Router/Element Plus）、`App.vue`（`<router-view/>`）、`router/index.ts`（Home/Login 路由）
 - [x] **占位页验证**：`views/Home.vue`、`views/Login.vue`（验证 Element Plus + 路由生效）
-- [ ] **前端目录规范落地**：`api/`(集中接口) / `store/`(Pinia) / `layouts/` / `components/` / `utils/`
-- [ ] **运行验证**：`npm install` → `npm run dev` 看到首页占位
-> 当前进度：脚手架 + 外壳的 10 个文件已作为"教学"给出，由用户手写中。
+- [x] **前端目录规范落地**：`api/`(集中接口) / `stores/`(Pinia) / `layouts/` / `components/` / `types/`
+- [x] **运行验证**：`npm install` → `npm run dev` 跑通；Landing / Login / Dashboard / 竞品管理 / 情报事件 / AI 报告 / 趋势分析页面均已实现
+> 当前进度：前端目录与业务页面已全部落地。注意：各页面目前读的是 `frontend/mock/*.ts` 的**假数据**，**尚未接后端**——等后端接口就绪后再关掉 mock 做联调。
 
-### 里程碑 3：搭建后端脚手架
-- [ ] **3.1 入口**：`app/main.py` 起 FastAPI，`/docs` 可访问；CORS 允许前端。
-- [ ] **3.2 配置层**：`core/config.py` 用 pydantic-settings 读 `.env`（DB_URL 默认 SQLite、JWT_SECRET、LLM_*.ENABLED、CACHE_BACKEND）。
-- [ ] **3.3 DB 无关层**：`core/database.py` 异步 engine + `get_db` 依赖；`Base.metadata.create_all` 在启动事件建表。
+### 里程碑 3：搭建后端脚手架（🔧 进行中）
+> 推进方式：后端与前端一致，改为**手写教学推进**（代码即学即写）。已落地内容如下。
+
+- [x] **3.1 入口**：`app/main.py` 起 FastAPI，`/docs` 可访问；已挂 `CORSMiddleware`（允许的来源从配置读，默认 `http://localhost:5173`）。
+- [x] **3.2 配置层**：`core/config.py` 用 pydantic-settings 读 `backend/.env`，`Settings` + `get_settings()` 单例；已接管 `DB_URL` / `JWT_SECRET` / `JWT_ALGORITHM` / `ACCESS_TOKEN_EXPIRE_MINUTES` / `CORS_ORIGINS`，代码内不再有硬编码密钥。同时提供 `.env.example`（可提交）与 `.env`（已被 `.gitignore` 忽略）。
+  - 验证方式：改 `.env` 的 `DB_URL` 后重启，会按新文件名生成数据库（如 `test_config.db`），证明配置确实生效。
+- [x] **3.3 DB 无关层**：`core/database.py` 异步 engine + `get_db` 依赖 + `init_db()`；`Base.metadata.create_all` 在 lifespan 启动事件建表。
 - [ ] **3.4 缓存抽象**：`core/cache.py` 实现 `MemoryCache`；预留 `RedisCache`（按 `CACHE_BACKEND` 切换）。
-- [ ] **3.5 安全**：`core/security.py` 密码 bcrypt 哈希 + JWT 签发/校验。
-- [ ] **3.6 数据模型**：`models/` 写齐 6 张表（user/competitor/snapshot/event/weekly_report/trend），遵守"DB 无关要点"。
-- [ ] **3.7 Schemas**：`schemas/` 写 Pydantic 请求/响应模型。
-- [ ] **3.8 运行验证**：`uvicorn app.main:app --reload`，访问 `/docs` 正常，SQLite 文件与表自动生成。
+- [x] **3.5 安全**：`core/security.py` 密码 bcrypt 哈希（`hash_password` / `verify_password`）+ JWT 签发/校验（`create_access_token` / `decode_access_token`）。
+- [x] **3.6 数据模型**：已落地 3 张表并通过 SQLite 验证 —— `models/user.py`（`users`）、`models/competitor.py`（`competitors`）、`models/source.py`（`monitor_sources`）；`models/base.py` 提供 `Base` / `BigIntPK`（`with_variant` 解决 SQLite 自增）/ `enum_values`（枚举存 `.value`）/ `TimestampMixin`。**其余 4 张表（page_snapshots / intelligence_events / weekly_reports / trend_insights）随里程碑 6-8 补齐**，建表时严格遵守"DB 无关要点"与 `docs/data-source-design.md`。
+  - 配套：`core/source_registry.py` 数据源注册表（8 种 v1 类型：`RenderMode` / `SourceType` / `SourceTypeConfig`）—— 爬虫模块的唯一策略来源，也是 v2 新增数据源的扩展点。
+- [x] **3.7 Schemas**：`schemas/user.py`（`UserCreate` / `UserOut` / `UserLogin` / `TokenOut`），后续按业务模块扩展。
+- [x] **3.8 运行验证**：`uvicorn app.main:app --reload --reload-dir app` 启动正常，`/docs` 可访问，`dev.db` 与 `users` 表自动生成。
 
-### 里程碑 4：用户认证模块
-- [ ] **4.1 后端**：`api/auth.py` 注册 + 登录返回 JWT；`api/deps.py` 鉴权依赖 `get_current_user`。
-- [ ] **4.2 前端接口层**：`api/request.ts`（axios 实例 + 拦截器自动带 Token + 统一错误处理）；`api/authApi.ts`。
-- [ ] **4.3 前端状态**：`store/user.ts`（存 token / 用户信息）。
+> **踩坑记录（防复发）**
+> 1. Windows 必须加 `--reload-dir app`：否则 watchfiles 会扫描 `.venv`（数万文件）导致事件循环卡死，表现为"启动成功但一直转圈"。
+> 2. SQLite 只有 `INTEGER PRIMARY KEY` 才会自增：直接用 `BigInteger` 建表会报 `NOT NULL constraint failed: users.id`，已用 `BigInteger().with_variant(Integer, "sqlite")` 解决。
+> 3. 表结构变更后必须删 `dev.db` 重启：SQLite 不允许改主键类型（开发期直接删库重建，生产用 Alembic，见里程碑 11）。
+
+### 里程碑 4：用户认证模块（🔧 进行中）
+- [x] **4.1 后端**：已实现并全部通过 `/docs` 验证 ——
+  - `POST /api/users` 注册（密码经 bcrypt 哈希后存储，用户名重复返回 **400**）
+  - `GET /api/users` 列表、`GET /api/users/{id}` 详情（不存在返回 **404**）
+  - `POST /api/auth/login` 登录（校验密码 → 签发 JWT）
+  - `GET /api/auth/me` 受保护接口（`HTTPBearer` 取令牌 → 验签 → 返回当前用户；无效/过期返回 **401**）
+  - 补：`api/deps.py` 已抽出 `get_current_user` 依赖（解析 Bearer 令牌 → 查用户 → 失败 401），`/api/auth/me` 与竞品接口均复用它。
+- [ ] **4.2 前端接口层**：`api/request.ts`（axios 实例 + 拦截器自动带 Token + 统一错误处理）已具备；`api/authApi.ts` 待与后端路径对齐。
+- [ ] **4.3 前端状态**：`stores/user.ts`（存 token / 用户信息）。
 - [ ] **4.4 前端登录流**：完善 `Login.vue`；`router` 加登录守卫（未登录跳 `/login`）。
-- [ ] **验收**：注册→登录拿 JWT→访问受保护接口成功。
+- [ ] **验收**：注册→登录拿 JWT→访问受保护接口成功（**后端链路已通过 `/docs` 验收**，待前端联动后整体验收）。
 
 ### 里程碑 5：竞品管理模块
-- [ ] **5.1 后端**：`api/competitors.py` 增删改查（需鉴权，按 `user_id` 隔离）。
+- [x] **5.1 后端**：`api/competitors.py` 已实现 `POST /api/competitors`（201）、`GET /api/competitors`、`GET/PATCH/DELETE /api/competitors/{id}`（删除 204）；全部经 `api/deps.py` 的 `get_current_user` 鉴权，并按 `user_id` 隔离（查不到/不属于自己一律 404）。已在 `/docs` 验证，并用第二个账号验证数据隔离（返回 `[]`）。
 - [ ] **5.2 前端**：`api/competitorApi.ts` + `store/competitor.ts` + `views/Competitors.vue`（CRUD + 配置监控 URL/频率）。
 - [ ] **验收**：前端能增删改查竞品，数据来自后端。
 
@@ -231,10 +245,12 @@ class Cache(Protocol):
 
 ## 五、执行建议
 
-1. 当前位于**里程碑 2（前端脚手架）**。
+1. 当前位于**里程碑 3（后端脚手架，剩 3.2 配置层 / 3.4 缓存抽象）→ 里程碑 4（用户认证，后端已通、待前端联动）**。
 2. 每完成一个里程碑，用"完成标志"核对，跑通再进下一个。
-3. 里程碑 2→3 之后，建议按"认证→竞品→采集→AI→趋势/周报→前端业务页"的顺序端到端推进，每个模块都做前后端联调。
+3. 建议按"认证→竞品→采集→AI→趋势/周报→前端业务页"的顺序端到端推进，每个模块都做前后端联调。
 4. 阶段一的最小可运行闭环（登录 + 竞品列表）是后续一切的前提，优先打磨稳定。
+5. 前后端均采用**手写教学推进**：后端与前端一样逐文件手写，每步可运行、可验证，不采用一次性脚手架生成。
+6. 方向边界以 `docs/positioning.md` 为准（只做 SaaS/App 官网与公开可 Diff 数据源，电商商品 v1 不做）；数据源抽象以 `docs/data-source-design.md` 为准。
 
 ---
 

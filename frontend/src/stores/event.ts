@@ -1,12 +1,11 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
-import type { EventItem, EventListResult } from "@/types/event";
-import { fetchEvents, fetchEventList } from "@/api/event";
+import type { EventDetail, EventItem, EventListResult } from "@/types/event";
+import { fetchEventDetail, fetchEventList, fetchEvents } from "@/api/event";
 
 export const useEventStore = defineStore("event", () => {
   const loading = ref(false);
   const events = ref<EventItem[]>([]);
-  // 和你 useTrendStore.loadTrend() 一模一样的写法
   async function loadEvents() {
     loading.value = true;
     try {
@@ -28,5 +27,29 @@ export const useEventStore = defineStore("event", () => {
     }
   }
 
-  return { loading, events, loadEvents, listLoading, eventList, loadEventList };
+  // 事件详情（抽屉用）
+  const detailLoading = ref(false);
+  const eventDetail = ref<EventDetail | null>(null);
+  async function loadEventDetail(id: number) {
+    detailLoading.value = true;
+    eventDetail.value = null; // 先清空，避免切换事件时闪现上一条内容
+    try {
+      eventDetail.value = await fetchEventDetail(id);
+      return eventDetail.value;
+    } finally {
+      detailLoading.value = false;
+    }
+  }
+
+  return {
+    loading,
+    events,
+    loadEvents,
+    listLoading,
+    eventList,
+    loadEventList,
+    detailLoading,
+    eventDetail,
+    loadEventDetail,
+  };
 });

@@ -1,0 +1,11 @@
+line-length = 100
+
+[lint]
+# E: 代码风格  F: 未定义/未使用的名字  I: 导入排序  B: 常见 bug 模式
+select = ["E", "F", "I", "B"]
+
+# B008: FastAPI 依赖注入必须在参数默认值里调用 Depends()，属框架惯例，忽略
+ignore = ["B008"]
+
+[lint.isort]
+known-first-party = ["app"]     # 告诉 Ruff：app 是我们自己的包

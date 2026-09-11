@@ -8,7 +8,7 @@ export default defineConfig({
     vue(),
     viteMockServe({
       mockPath: "mock", //指向 frontend/mock 目录
-      enable: true, //开发环境启用；生产构建自动关闭
+      enable: false, //开发环境启用；生产构建自动关闭
     }),
   ],
   resolve: {

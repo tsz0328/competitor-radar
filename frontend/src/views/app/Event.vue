@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useEventStore } from "@/stores/event";
+import { useCompetitorStore } from "@/stores/competitor";
 import type { EventRecord } from "@/types/event";
 import {
   Search,
@@ -13,17 +14,29 @@ import {
   MoreFilled,
   ArrowLeft,
   ArrowRight,
+  Close,
 } from "@element-plus/icons-vue";
 
 const eventStore = useEventStore();
+const competitorStore = useCompetitorStore();
 
 // 顶部筛选
 const keyword = ref("");
 const filterCompetitor = ref("all");
 const filterType = ref("all");
 const filterPriority = ref("all");
-const dateRange = ref<[string, string]>(["2026-06-18", "2026-06-25"]);
-const activeRange = ref(""); // 当前选中的快捷预设：'' | 'today' | '7d' | '30d'
+function daysAgo(days: number): Date {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d;
+}
+
+// 默认近 7 天（formatDate 是函数声明会被提升，可提前调用），避免出现写死的过期区间
+const dateRange = ref<[string, string]>([
+  formatDate(daysAgo(6)),
+  formatDate(new Date()),
+]);
+const activeRange = ref("7d"); // 当前选中的快捷预设：'' | 'today' | '7d' | '30d'
 
 function formatDate(d: Date): string {
   const y = d.getFullYear();
@@ -52,6 +65,7 @@ const pageSize = ref(10);
 
 onMounted(() => {
   eventStore.loadEventList();
+  competitorStore.loadCompetitors(); // 右侧「竞品」筛选用真实数据
 });
 
 const summary = computed(() => eventStore.eventList?.summary);
@@ -63,7 +77,7 @@ const SUMMARY_CARD_DEFS = [
   { key: "feature", label: "功能更新", cls: "chip-feature", icon: Promotion },
   { key: "price", label: "价格变化", cls: "chip-price", icon: PriceTag },
   { key: "content", label: "内容更新", cls: "chip-content", icon: Document },
-  { key: "negative", label: "负面舆情", cls: "chip-negative", icon: Warning },
+  { key: "negative", label: "舆论动态", cls: "chip-negative", icon: Warning },
   { key: "other", label: "其他", cls: "chip-other", icon: MoreFilled },
 ] as const;
 
@@ -77,12 +91,86 @@ const summaryCards = computed(() =>
   }))
 );
 
-// 按选中分类筛选事件（total = 全部）
-const filteredRecords = computed(() =>
-  activeCategory.value === "total"
-    ? records.value
-    : records.value.filter((r) => r.category === activeCategory.value)
+// 右侧「竞品」下拉：真实竞品，value 用字符串化的 id
+const competitorOptions = computed(() =>
+  competitorStore.competitors.map((c) => ({ label: c.name, value: String(c.id) })),
 );
+
+// 各优先级的真实数量（替换原先写死的计数）
+const priorityCounts = computed(() => {
+  const counts: Record<string, number> = { high: 0, mid: 0, low: 0 };
+  for (const r of records.value) {
+    counts[r.priorityType] = (counts[r.priorityType] ?? 0) + 1;
+  }
+  return counts;
+});
+
+/** 顶部关键字/分类 + 右侧竞品/优先级/置信度 + 日期范围，全部即时生效 */
+const filteredRecords = computed(() => {
+  const k = keyword.value.trim().toLowerCase();
+  let list = records.value;
+
+  if (activeCategory.value !== "total") {
+    list = list.filter((r) => r.category === activeCategory.value);
+  }
+  if (sideCompetitor.value !== "all") {
+    list = list.filter((r) => String(r.competitorId ?? "") === sideCompetitor.value);
+  }
+  list = list.filter((r) => sidePriorities.value.includes(r.priorityType));
+
+  const [minConfidence, maxConfidence] = sideConfidence.value;
+  list = list.filter(
+    (r) => r.aiConfidence >= minConfidence && r.aiConfidence <= maxConfidence,
+  );
+
+  if (k) {
+    list = list.filter((r) =>
+      [r.title, r.desc, r.brand, ...(r.keywords ?? [])]
+        .join(" ")
+        .toLowerCase()
+        .includes(k),
+    );
+  }
+
+  const [startDate, endDate] = dateRange.value;
+  return list.filter((r) => r.date >= startDate && r.date <= endDate);
+});
+
+function resetFilters() {
+  keyword.value = "";
+  filterCompetitor.value = "all";
+  filterType.value = "all";
+  filterPriority.value = "all";
+  activeCategory.value = "total";
+  sideCompetitor.value = "all";
+  sidePriorities.value = ["high", "mid", "low"];
+  sideConfidence.value = [0, 100];
+  setQuickRange("7d");
+}
+
+// ---- 事件详情抽屉 ----
+const detailVisible = ref(false);
+const detail = computed(() => eventStore.eventDetail);
+
+async function openDetail(record: EventRecord) {
+  detailVisible.value = true; // 先开抽屉再加载，用 loading 遮罩承接等待
+  try {
+    await eventStore.loadEventDetail(record.id);
+  } catch {
+    detailVisible.value = false; // 失败提示由 request.ts 拦截器统一弹出
+  }
+}
+
+/** 把 unified diff 拆行渲染，按行着色 */
+const diffLines = computed(() => (detail.value?.diffDetail ?? "").split("\n"));
+
+function diffLineClass(line: string): string {
+  if (line.startsWith("+++") || line.startsWith("---")) return "diff-file";
+  if (line.startsWith("@@")) return "diff-hunk";
+  if (line.startsWith("+")) return "diff-add";
+  if (line.startsWith("-")) return "diff-del";
+  return "diff-ctx";
+}
 
 // 按日期分组
 const groups = computed(() => {
@@ -216,9 +304,13 @@ const groups = computed(() => {
                         {{ item.priority }}
                       </span>
                     </div>
-                    <el-button class="detail-btn" size="small"
-                      >查看详情</el-button
+                    <el-button
+                      class="detail-btn"
+                      size="small"
+                      @click="openDetail(item)"
                     >
+                      查看详情
+                    </el-button>
                     <div class="event-ago">{{ item.ago }}</div>
                   </div>
                 </div>
@@ -247,18 +339,21 @@ const groups = computed(() => {
       <aside class="side-filter card">
         <header class="side-head">
           <span class="side-title">筛选条件</span>
-          <el-button type="text" class="reset-btn">重置</el-button>
+          <el-button type="text" class="reset-btn" @click="resetFilters"
+            >重置</el-button
+          >
         </header>
 
         <div class="side-section">
           <div class="side-label">竞品</div>
           <el-select v-model="sideCompetitor" class="side-select">
             <el-option label="全部竞品" value="all" />
-            <el-option label="OpenAI" value="openai" />
-            <el-option label="Claude" value="claude" />
-            <el-option label="Midjourney" value="midjourney" />
-            <el-option label="Google Gemini" value="gemini" />
-            <el-option label="Perplexity" value="perplexity" />
+            <el-option
+              v-for="opt in competitorOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
           </el-select>
         </div>
 
@@ -267,17 +362,17 @@ const groups = computed(() => {
           <el-checkbox-group v-model="sidePriorities" class="side-checks">
             <el-checkbox value="high">
               <span class="check-dot high"></span>高<span class="check-count"
-                >(16)</span
+                >({{ priorityCounts.high }})</span
               >
             </el-checkbox>
             <el-checkbox value="mid">
               <span class="check-dot mid"></span>中<span class="check-count"
-                >(20)</span
+                >({{ priorityCounts.mid }})</span
               >
             </el-checkbox>
             <el-checkbox value="low">
               <span class="check-dot low"></span>低<span class="check-count"
-                >(6)</span
+                >({{ priorityCounts.low }})</span
               >
             </el-checkbox>
           </el-checkbox-group>
@@ -288,9 +383,128 @@ const groups = computed(() => {
           <el-slider v-model="sideConfidence" range :min="0" :max="100" />
         </div>
 
-        <el-button class="apply-btn" type="primary">应用筛选 (5)</el-button>
+        <el-button class="apply-btn" type="primary" @click="resetFilters"
+          >重置全部筛选</el-button
+        >
       </aside>
     </div>
+
+    <!-- 事件详情抽屉 -->
+    <el-drawer
+      v-model="detailVisible"
+      :with-header="false"
+      size="min(760px, 94vw)"
+      class="event-detail-drawer"
+    >
+      <div v-loading="eventStore.detailLoading" class="detail-body">
+        <template v-if="detail">
+          <header class="detail-head">
+            <div
+              class="detail-logo"
+              :style="{ backgroundColor: detail.iconBg, color: detail.iconColor }"
+            >
+              {{ detail.iconText }}
+            </div>
+            <div class="detail-head-main">
+              <div class="detail-brand-row">
+                <span class="detail-brand">{{ detail.brand }}</span>
+                <span class="event-tag" :class="detail.tagType">{{
+                  detail.tag
+                }}</span>
+                <span class="priority-tag" :class="detail.priorityType">{{
+                  detail.priority
+                }}</span>
+              </div>
+              <div class="detail-sub">
+                {{ detail.date }} {{ detail.time }} · {{ detail.ago }} · 来源：{{
+                  detail.source
+                }}
+              </div>
+            </div>
+            <el-button link :icon="Close" @click="detailVisible = false" />
+          </header>
+
+          <section class="detail-section">
+            <div class="detail-title">{{ detail.title }}</div>
+            <p class="detail-summary">{{ detail.summary }}</p>
+            <div v-if="detail.keywords?.length" class="detail-keywords">
+              <span v-for="k in detail.keywords" :key="k" class="keyword">{{
+                k
+              }}</span>
+            </div>
+          </section>
+
+          <section class="detail-section">
+            <div class="detail-section-title">事件信息</div>
+            <div class="meta-grid">
+              <div class="meta-item">
+                <span class="meta-label">事件类型</span>
+                <span>{{ detail.tag }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">优先级</span>
+                <span class="priority-text" :class="detail.priorityType">{{
+                  detail.priority
+                }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">AI 置信度</span>
+                <span class="meta-confidence">
+                  <el-progress
+                    :percentage="detail.aiConfidence"
+                    :show-text="false"
+                    color="#22c55e"
+                  />
+                  <b>{{ detail.aiConfidence }}%</b>
+                </span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">检测时间</span>
+                <span>{{ detail.date }} {{ detail.time }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">监控页面</span>
+                <a
+                  v-if="detail.sourceUrl"
+                  :href="detail.sourceUrl"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="meta-link"
+                  >{{ detail.sourceUrl }}</a
+                >
+                <span v-else>{{ detail.source }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">竞品官网</span>
+                <a
+                  v-if="detail.url"
+                  :href="detail.url"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="meta-link"
+                  >{{ detail.domain }}</a
+                >
+                <span v-else>—</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="detail-section">
+            <div class="detail-section-title">
+              变化内容
+              <span class="detail-hint">+ 新增 / - 删除</span>
+            </div>
+            <pre v-if="detail.diffDetail" class="diff-view"><code><span
+                v-for="(line, idx) in diffLines"
+                :key="idx"
+                class="diff-line"
+                :class="diffLineClass(line)"
+              >{{ line || " " }}</span></code></pre>
+            <div v-else class="detail-empty">这条事件没有留存差异内容</div>
+          </section>
+        </template>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -579,6 +793,10 @@ const groups = computed(() => {
   background-color: #fff1f0;
   color: #ff4d4f;
 }
+.tag-other {
+  background-color: #f0f0f0;
+  color: #909399;
+}
 
 .event-sub {
   font-size: 1vmax;
@@ -761,5 +979,196 @@ const groups = computed(() => {
 
 .apply-btn {
   width: 100%;
+}
+
+/* ===== 事件详情抽屉 ===== */
+.detail-body {
+  min-height: 240px;
+}
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: 1vw;
+  padding-bottom: 1.5vh;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.detail-logo {
+  width: 4vmax;
+  height: 4vmax;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 0.6vmax;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6vmax;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.detail-head-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5vh;
+}
+
+.detail-brand-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6vw;
+}
+
+.detail-brand {
+  font-size: 1.3vmax;
+  font-weight: bold;
+}
+
+.detail-sub {
+  font-size: 0.95vmax;
+  color: var(--app-color-gray);
+}
+
+.detail-section {
+  margin-top: 2.5vh;
+}
+
+.detail-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6vw;
+  font-size: 1.05vmax;
+  font-weight: bold;
+  margin-bottom: 1vh;
+  padding-left: 0.6vw;
+  border-left: 3px solid var(--app-color-primary);
+}
+
+.detail-hint {
+  font-size: 0.85vmax;
+  font-weight: normal;
+  color: var(--app-color-gray);
+}
+
+.detail-title {
+  font-size: 1.25vmax;
+  font-weight: bold;
+  line-height: 1.6;
+}
+
+.detail-summary {
+  margin: 1vh 0 0;
+  font-size: 1.05vmax;
+  line-height: 1.75;
+}
+
+.detail-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5vw;
+  margin-top: 1.2vh;
+}
+
+/* 事件信息网格 */
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.2vh 1.5vw;
+}
+
+.meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4vh;
+  font-size: 1vmax;
+  min-width: 0;
+}
+
+.meta-label {
+  font-size: 0.9vmax;
+  color: var(--app-color-gray);
+}
+
+.meta-confidence {
+  display: flex;
+  align-items: center;
+  gap: 0.6vw;
+}
+
+.meta-confidence :deep(.el-progress) {
+  flex: 1;
+  max-width: 140px;
+}
+
+.meta-link {
+  color: var(--app-color-primary);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.meta-link:hover {
+  text-decoration: underline;
+}
+
+.priority-text.high {
+  color: #ff4d4f;
+}
+.priority-text.mid {
+  color: #fa8c16;
+}
+.priority-text.low {
+  color: #22c55e;
+}
+
+/* 差异视图：按行着色 */
+.diff-view {
+  margin: 0;
+  padding: 1.2vh 1vw;
+  max-height: 42vh;
+  overflow: auto;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 0.8vmax;
+  font-family: Consolas, Menlo, "Courier New", monospace;
+  font-size: 0.92vmax;
+  line-height: 1.7;
+}
+
+.diff-line {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 0 0.4vw;
+}
+
+.diff-add {
+  background: #e8f8ee;
+  color: #12805a;
+}
+.diff-del {
+  background: #fdecec;
+  color: #c81e4a;
+}
+.diff-hunk,
+.diff-file {
+  color: #8c8c8c;
+}
+.diff-file {
+  font-weight: bold;
+}
+.diff-ctx {
+  color: #595959;
+}
+
+.detail-empty {
+  padding: 2vh 1vw;
+  font-size: 1vmax;
+  color: var(--app-color-gray);
+  background: #fafafa;
+  border-radius: 0.8vmax;
 }
 </style>

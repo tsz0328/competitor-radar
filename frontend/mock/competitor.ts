@@ -1,10 +1,10 @@
 import { MockMethod } from "vite-plugin-mock";
 
-// 模拟后端缓存：logo 只解析一次
+// 模拟后端的图标地址：用站点自身的 favicon（第三方 logo 服务不稳定）
 const logoCache = new Map<string, string>();
 function resolveLogo(domain: string): string {
   if (!logoCache.has(domain)) {
-    logoCache.set(domain, `https://logo.clearbit.com/${domain}`);
+    logoCache.set(domain, `https://${domain}/favicon.ico`);
   }
   return logoCache.get(domain)!;
 }

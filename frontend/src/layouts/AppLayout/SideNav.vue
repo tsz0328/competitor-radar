@@ -158,7 +158,6 @@ watch(
 }
 .footer-account {
   font-size: 0.6vmax;
-  color: var(--app-text-color-secondary);
 }
 .footer-expand{
   font-size: 1vmax;
