@@ -55,6 +55,10 @@ def _migrate_dev_columns(conn) -> None:
     """开发期兼容：为已存在的表补加新列（生产请改用 alembic，勿依赖此函数）。"""
     additions = [
         ("intelligence_events", "ai_analysis", "TEXT"),
+        # 周报收藏（跟随账号，服务端持久化）：新增列，老 dev.db 补上
+        ("weekly_reports", "favorite", "BOOLEAN NOT NULL DEFAULT 0"),
+        # 用户级偏好（跟随账号，原先在前端 localStorage）：新增列，老 dev.db 补上
+        ("users", "preferences", "JSON"),
     ]
     for table, column, ctype in additions:
         try:

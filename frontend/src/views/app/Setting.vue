@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
+import { storeToRefs } from "pinia";
 import { ElMessage } from "element-plus";
 import {
   Check,
@@ -22,6 +23,7 @@ import {
 import { fetchSourceTypes } from "@/api/competitor";
 import type { SourceType, SourceTypeOption } from "@/types/competitor";
 import { useLlmStore } from "@/stores/llm";
+import { usePreferencesStore } from "@/stores/preferences";
 
 const llmStore = useLlmStore();
 
@@ -37,40 +39,30 @@ const categories = [
 ] as const;
 const activeCategory = ref<(typeof categories)[number]["key"]>("ai");
 
-// 添加竞品偏好：与 CompetitorFormDialog 共用同一个 localStorage key
-const ALLOW_UNREACHABLE_KEY = "competitor.allowUnreachableOfficial";
-const allowUnreachableOfficial = ref(
-  localStorage.getItem(ALLOW_UNREACHABLE_KEY) === "1",
-);
-watch(allowUnreachableOfficial, (v) => {
-  localStorage.setItem(ALLOW_UNREACHABLE_KEY, v ? "1" : "0");
+// 添加竞品偏好：存在账号下（服务端），与 CompetitorFormDialog 共用同一个 store
+const preferences = usePreferencesStore();
+const {
+  allowUnreachableOfficial,
+  defaultSourceTypes: defaultSelectedTypes,
+} = storeToRefs(preferences);
+// 偏好加载完成前不回写，否则初始值会把服务端已存的值覆盖掉
+const prefsReady = ref(false);
+watch(allowUnreachableOfficial, async (v) => {
+  if (!prefsReady.value) return;
+  await preferences.save({ allowUnreachableOfficial: v });
   ElMessage.success(
     v ? "已开启：官网不可达也可先创建" : "已关闭：官网不可达将拦截保存",
   );
 });
 
-// 新增竞品默认勾选的监控页面（与 CompetitorFormDialog 共用 localStorage key）
-const DEFAULT_TYPES_KEY = "competitor.defaultSelectedTypes";
 // 推荐优先勾选的页面（对竞品监控价值更高）
 const RECOMMENDED_TYPES = new Set<SourceType>(["pricing", "changelog"]);
 const typeOptions = ref<SourceTypeOption[]>([]);
-function readDefaultTypes(): SourceType[] {
-  try {
-    const raw = localStorage.getItem(DEFAULT_TYPES_KEY);
-    if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr) && arr.length) return arr as SourceType[];
-    }
-  } catch {
-    /* ignore */
-  }
-  return ["homepage"];
-}
-const defaultSelectedTypes = ref<SourceType[]>(readDefaultTypes());
 watch(
   defaultSelectedTypes,
-  (v) => {
-    localStorage.setItem(DEFAULT_TYPES_KEY, JSON.stringify(v));
+  async (v) => {
+    if (!prefsReady.value) return;
+    await preferences.save({ defaultSourceTypes: [...v] });
     ElMessage.success("默认勾选已保存");
   },
   { deep: true },
@@ -231,7 +223,10 @@ async function test() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // 先把账号偏好读回来，再允许回写
+  await preferences.ensureLoaded();
+  prefsReady.value = true;
   load();
   loadTypes();
 });

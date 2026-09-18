@@ -133,7 +133,7 @@ LLM 生成趋势判断："该竞品近 3 个月调价频率较前 3 个月提升
 | `changelog` | 更新日志 / Release Notes | `https://www.notion.so/releases` | browser | 每天 |
 | `blog` | 官方博客 | `https://www.notion.so/blog` | http（RSS 优先） | 每天 |
 | `docs` | 帮助文档 | `https://www.notion.so/help/...` | browser | 每周 |
-| `status` | 服务状态页 | `https://status.notion.so/` | http | 每小时 |
+| `status` | 服务状态页 | `https://status.notion.so/` | browser | 每小时 |
 | `rss` | 通用 RSS / Atom | `https://www.notion.so/blog/rss.xml` | http | 每小时 |
 | `app_store` | App Store / Google Play 应用页 | `https://apps.apple.com/...` | browser | 每天 |
 

@@ -8,6 +8,14 @@ from pydantic.alias_generators import to_camel
 _CFG = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
 
+class ReportFavoriteIn(BaseModel):
+    """收藏切换入参。"""
+
+    model_config = _CFG
+
+    favorite: bool
+
+
 class ReportListItemOut(BaseModel):
     model_config = _CFG
 

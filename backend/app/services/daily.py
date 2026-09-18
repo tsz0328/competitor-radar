@@ -72,7 +72,8 @@ async def build_daily_insight(db: AsyncSession, user: User, days: int = 1) -> di
     # 高优先级优先（sorted 稳定，同优先级保持时间倒序）
     ranked = sorted(events, key=lambda event: 0 if event.priority == "high" else 1)
     event_lines = [
-        f"{names.get(event.competitor_id, '')}｜{EVENT_TYPE_LABELS[event.event_type]}｜{event.title}"
+        f"{names.get(event.competitor_id, '')}｜"
+        f"{EVENT_TYPE_LABELS[event.event_type]}｜{event.title}"
         for event in ranked[:20]
     ]
 

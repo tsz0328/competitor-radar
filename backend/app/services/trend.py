@@ -182,6 +182,21 @@ async def _events_since(
     return list(result.scalars().all())
 
 
+def _daily_weighted_strength(events: list[IntelligenceEvent], period_days: int) -> list[float]:
+    """把窗口内事件按 类型×优先级 加权，聚合成每日强度序列（从早到晚，缺口补 0）。"""
+    today = datetime.now().astimezone().date()
+    start = today - timedelta(days=period_days - 1)
+    daily = {start + timedelta(days=i): 0.0 for i in range(period_days)}
+    for event in events:
+        local = to_local(event.created_at)
+        if local is None or local.date() not in daily:
+            continue
+        weight = _EVENT_TYPE_WEIGHTS.get(event.event_type, 1.0) * _PRIORITY_WEIGHTS.get(
+            event.priority or "mid", 1.0)
+        daily[local.date()] += weight
+    return [round(value, 1) for value in daily.values()]
+
+
 async def generate_insight(
     db: AsyncSession,
     competitor: Competitor,
@@ -191,15 +206,10 @@ async def generate_insight(
     since = datetime.now(timezone.utc) - timedelta(days=period_days)
     events = await _events_since(db, competitor.id, since)
 
-    # 每日事件数（从早到晚），缺口补 0
-    today = datetime.now().astimezone().date()
-    start = today - timedelta(days=period_days - 1)
-    daily = {start + timedelta(days=i): 0 for i in range(period_days)}
-    for event in events:
-        local = to_local(event.created_at)
-        if local is not None and local.date() in daily:
-            daily[local.date()] += 1
-    daily_counts = list(daily.values())
+    # 节奏判断看"加权后的每日强度"：同样的事件数，价格/高优先级事件占比越高越"活跃"；
+    # coverage_days 仍用原始事件数统计，避免加权把有事件的 0 天误判成没活动。
+    weighted = _daily_weighted_strength(events, period_days)
+    active_days = sum(1 for value in weighted if value > 0)
 
     highlights = [
         f"{EVENT_TYPE_LABELS[event.event_type]}：{event.title}" for event in events[:4]
@@ -207,8 +217,9 @@ async def generate_insight(
     judgment = await get_llm_client().trend_judgment(
         competitor_name=competitor.name,
         period_days=period_days,
-        daily_counts=daily_counts,
+        daily_counts=weighted,
         highlights=highlights,
+        raw_event_count=len(events),
     )
 
     insight = TrendInsight(
@@ -219,7 +230,7 @@ async def generate_insight(
         highlights=judgment.highlights,
         event_count=len(events),
         high_impact_count=sum(1 for event in events if event.priority == "high"),
-        coverage_days=sum(1 for count in daily_counts if count),
+        coverage_days=active_days,
     )
     db.add(insight)
     await db.flush()
@@ -251,3 +262,14 @@ async def get_or_generate_insight(
         return latest, False
 
     return await generate_insight(db, competitor, period_days), True
+# 趋势判断的"重要性权重"：同样一天里，一次价格调整比多条文案更新更值得关注。
+# 权重 = 事件类型权重 × 优先级系数，聚合成"每日加权强度"后再交给前后半段对比，
+# 让"1 次 price_change(high)"的信号强度 >= "3 次 content_update(mid)"。
+_EVENT_TYPE_WEIGHTS: dict[EventType, float] = {
+    EventType.PRICE_CHANGE: 3.0,
+    EventType.NEW_FEATURE: 2.0,
+    EventType.PUBLIC_SENTIMENT: 2.0,
+    EventType.CONTENT_UPDATE: 1.0,
+    EventType.OTHER: 0.5,
+}
+_PRIORITY_WEIGHTS: dict[str, float] = {"high": 2.0, "mid": 1.0, "low": 0.5}

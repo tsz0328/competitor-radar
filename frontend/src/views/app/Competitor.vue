@@ -173,6 +173,7 @@ function reportCrawlResult(item: CompetitorItem, result: CrawlResult) {
   const failed = result.results.filter((r) => r.status === "failed");
   const changed = result.results.filter((r) => r.changed);
   const firstTime = result.results.filter((r) => r.firstTime);
+  const skipped = result.results.filter((r) => r.status === "skipped");
 
   if (failed.length) {
     ElNotification({
@@ -190,6 +191,9 @@ function reportCrawlResult(item: CompetitorItem, result: CrawlResult) {
     if (firstTime.length) {
       parts.push(`新建立基准：${firstTime.map((r) => r.sourceName).join("、")}`);
     }
+    if (skipped.length) {
+      parts.push(`已跳过（正在抓取中）：${skipped.map((r) => r.sourceName).join("、")}`);
+    }
     ElNotification({
       title: `${item.name}：抓取 ${result.total} 个页面，发现 ${changed.length} 处变化`,
       type: "success",
@@ -201,7 +205,10 @@ function reportCrawlResult(item: CompetitorItem, result: CrawlResult) {
     const baseline = firstTime.length
       ? `，其中 ${firstTime.length} 个已建立基准（${firstTime.map((r) => r.sourceName).join("、")}）`
       : "";
-    ElMessage.success(`已抓取 ${result.total} 个页面，暂无变化${baseline}`);
+    const skippedText = skipped.length
+      ? `，其中 ${skipped.length} 个正在抓取中，已跳过`
+      : "";
+    ElMessage.success(`已抓取 ${result.total} 个页面，暂无变化${skippedText}${baseline}`);
   }
 }
 

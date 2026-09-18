@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     check_url_timeout_seconds: float = 12.0
     # 连续失败达到该次数就自动停用该监控源，避免反复无效抓取
     crawl_max_fail_count: int = 5
+    # 单个监控源抓取的互斥锁 TTL：防止手动触发和定时任务同时抓同一个页面
+    crawl_source_lock_ttl_seconds: int = 180
+    # 抓取 429/5xx 与网络错误时的额外重试次数（0=不重试）
+    crawl_retry_count: int = 2
+    crawl_retry_base_seconds: float = 1.0
+    # 尊重目标站点 Retry-After，但最多等待这么久（秒）
+    crawl_retry_max_wait_seconds: float = 5.0
     # 提取到的正文短于该长度，视为"没抓到有效内容"（多为需要 JS 渲染的页面）
     crawl_min_text_length: int = 30
     # 存进快照的 diff 文本上限，防止整页改写时把库撑爆

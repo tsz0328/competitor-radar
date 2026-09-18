@@ -8,7 +8,7 @@ from app.core.database import get_db
 from app.core.exceptions import ERR_REPORT_NOT_FOUND, BusinessError
 from app.models.user import User
 from app.models.weekly_report import WeeklyReport
-from app.schemas.report import ReportDetailOut, ReportListOut
+from app.schemas.report import ReportDetailOut, ReportFavoriteIn, ReportListOut
 from app.services import report as report_service
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -58,6 +58,30 @@ async def generate_report(
     report = await report_service.generate_weekly_report(
         db, current_user, weeks_ago=weeks_ago
     )
+    await db.commit()
+    await db.refresh(report)
+    return report_service.to_detail(report)
+
+
+@router.patch("/{report_id}/favorite", response_model=ReportDetailOut)
+async def set_report_favorite(
+    report_id: int,
+    payload: ReportFavoriteIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """切换收藏：收藏状态存在账号下，不再是前端的本地状态。"""
+    report = (
+        await db.execute(
+            select(WeeklyReport).where(
+                WeeklyReport.id == report_id,
+                WeeklyReport.user_id == current_user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if report is None:
+        raise BusinessError(ERR_REPORT_NOT_FOUND, "报告不存在", 404)
+    report.favorite = payload.favorite
     await db.commit()
     await db.refresh(report)
     return report_service.to_detail(report)

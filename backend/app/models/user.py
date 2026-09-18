@@ -1,4 +1,4 @@
-from sqlalchemy import String
+from sqlalchemy import JSON, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, BigIntPK
@@ -18,3 +18,6 @@ class User(Base):
     email: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    # 用户级偏好（跟账号走，不落浏览器）：如"允许添加不可达官网""新增竞品默认勾选的监控页"等
+    preferences: Mapped[dict | None] = mapped_column(JSON, nullable=True)

@@ -32,6 +32,8 @@ class SourceTypeConfig:
     extractor: str  # 正文怎么提取
     differ: str  # 怎么比对变化
     llm_hint: str = ""  # 给 AI 的分类提示
+    # RSS 得不到条目时，是否允许退回 HTML 正文提取（如博客首页而非 /feed）
+    rss_fallback_to_html: bool = False
 
 
 SOURCE_TYPE_REGISTRY: dict[SourceType, SourceTypeConfig] = {
@@ -45,7 +47,7 @@ SOURCE_TYPE_REGISTRY: dict[SourceType, SourceTypeConfig] = {
         "更新日志", RenderMode.BROWSER, 1440, "release_block", "item_set", "新版本/新功能/修复"
     ),
     SourceType.BLOG: SourceTypeConfig(
-        "官方博客", RenderMode.HTTP, 1440, "rss", "item_set", "官方文章发布"
+        "官方博客", RenderMode.HTTP, 1440, "rss", "item_set", "官方文章发布", True
     ),
     SourceType.DOCS: SourceTypeConfig(
         "帮助文档", RenderMode.BROWSER, 10080, "trafilatura", "full_text", "文档内容变更"

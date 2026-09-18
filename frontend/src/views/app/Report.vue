@@ -128,9 +128,13 @@ async function onGenerate() {
   }
 }
 
-function onToggleFavorite(id: number) {
-  const next = reportStore.toggleFavorite(id);
-  ElMessage.success(next ? "已收藏该报告" : "已取消收藏");
+async function onToggleFavorite(id: number) {
+  try {
+    const next = await reportStore.toggleFavorite(id);
+    ElMessage.success(next ? "已收藏该报告" : "已取消收藏");
+  } catch {
+    // 失败提示由 request.ts 拦截器统一弹出
+  }
 }
 
 function onDownload() {

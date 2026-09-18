@@ -2,7 +2,9 @@
 import { computed, h, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox, ElNotification, type FormInstance, type FormRules } from "element-plus";
 import { Check, Delete, InfoFilled, Link, Loading, MagicStick, WarningFilled } from "@element-plus/icons-vue";
+import { storeToRefs } from "pinia";
 import { useCompetitorStore } from "@/stores/competitor";
+import { usePreferencesStore } from "@/stores/preferences";
 import { checkSourceUrl, discoverSources, fetchSourceTypes, suggestCompetitor } from "@/api/competitor";
 import type {
   CompetitorCreatePayload,
@@ -73,14 +75,13 @@ const refinding = ref(false);
 const refindingType = ref<SourceType | null>(null);
 // 单页"重新寻找"的行内结果提示：found=已找到 / miss=未找到
 const refindResult = reactive<Record<string, "found" | "miss" | "">>({});
-// 官网不可达时是否仍允许创建（用户显式勾选才放行，默认仍硬拦）；作为全局偏好记住上次选择
-const ALLOW_UNREACHABLE_KEY = "competitor.allowUnreachableOfficial";
-const allowUnreachableOfficial = ref(
-  localStorage.getItem(ALLOW_UNREACHABLE_KEY) === "1",
-);
-watch(allowUnreachableOfficial, (v) =>
-  localStorage.setItem(ALLOW_UNREACHABLE_KEY, v ? "1" : "0"),
-);
+// 官网不可达时是否仍允许创建（用户显式勾选才放行，默认仍硬拦）；偏好存账号下，与设置页共用 store
+const preferences = usePreferencesStore();
+const { allowUnreachableOfficial } = storeToRefs(preferences);
+watch(allowUnreachableOfficial, (v) => {
+  // 初始化回填时也会触发，重复提交同一个值无害；失败提示由拦截器统一弹出
+  preferences.save({ allowUnreachableOfficial: v }).catch(() => {});
+});
 const OFFICIAL_KEY = "__official__"; // 官网首页（可能未作为单独页面勾选）的检测键
 // 记录被用户手动改过的页面网址：官网变动同步时不再被自动猜测覆盖
 const manualUrlEdited = reactive<Record<string, boolean>>({});
@@ -146,21 +147,12 @@ const PATH_GUESS: Record<string, string> = {
   app_store: "",
 };
 
-// 默认勾选：优先读全局偏好（设置页「添加竞品偏好」可配），否则只勾「官网首页」
-const DEFAULT_TYPES_KEY = "competitor.defaultSelectedTypes";
+// 默认勾选：优先读账号偏好（设置页「添加竞品偏好」可配），否则只勾「官网首页」
 const RECOMMENDED_TYPES = new Set<SourceType>(["pricing", "changelog"]);
 /** 读取"新增竞品默认勾选的页面"偏好；无有效值时兜底为官网首页 */
 function defaultSelectedTypes(): SourceType[] {
-  try {
-    const raw = localStorage.getItem(DEFAULT_TYPES_KEY);
-    if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr) && arr.length) return arr as SourceType[];
-    }
-  } catch {
-    /* ignore */
-  }
-  return ["homepage"];
+  const arr = preferences.defaultSourceTypes;
+  return arr.length ? (arr as SourceType[]) : ["homepage"];
 }
 
 const typeOptions = ref<SourceTypeOption[]>([]);
@@ -677,9 +669,8 @@ function applyCompetitor(item: CompetitorItem) {
 
 async function initialize() {
   resetForm();
-  // 每次打开都重新读取全局偏好（设置页可能刚改过）
-  allowUnreachableOfficial.value =
-    localStorage.getItem(ALLOW_UNREACHABLE_KEY) === "1";
+  // 偏好跟账号走：store 已加载过就是最新值（设置页改完会同步到这个 store）
+  await preferences.ensureLoaded();
   await loadTypeOptions();
   if (props.competitor) {
     applyCompetitor(props.competitor);

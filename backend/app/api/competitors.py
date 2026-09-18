@@ -70,7 +70,7 @@ async def check_source_url(
             message="网址格式不正确，需以 http:// 或 https:// 开头",
         )
 
-    result = await fetch_html(url, timeout=settings.check_url_timeout_seconds)
+    result = await fetch_html(url, timeout=settings.check_url_timeout_seconds, retry_count=0)
     if result.ok:
         return UrlCheckResult(
             url=url,

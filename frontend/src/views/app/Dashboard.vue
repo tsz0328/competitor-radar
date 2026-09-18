@@ -17,8 +17,6 @@ const eventStore = useEventStore();
 const competitorStore = useCompetitorStore();
 const authStore = useAuthStore();
 
-const pageLoading = ref(false);
-
 // 近 30 天情报变化趋势（导航型图表：点某天钻取到情报中心）
 const dailyTrend = ref<DailyCount[]>([]);
 const trendDist = ref<
@@ -60,17 +58,23 @@ function onSelectTrendDate(dateIso: string) {
   router.push({ name: "Event", query: { date: dateIso } });
 }
 
-// 工作台只关心「今天」：一次请求拿到今日统计 + 今日事件记录
+// 工作台只关心「今天」：各模块各自加载，互不阻塞（卡片分别显示加载态）
+const trendLoading = ref(false);
+
 onMounted(async () => {
-  pageLoading.value = true;
   await Promise.allSettled([
     eventStore.loadEventList({ days: 1, limit: 200 }),
     competitorStore.loadCompetitors(),
     eventStore.loadDailyInsight(1),
-    loadDailyTrend(),
-    loadTrendDist(),
+    (async () => {
+      trendLoading.value = true;
+      try {
+        await Promise.allSettled([loadDailyTrend(), loadTrendDist()]);
+      } finally {
+        trendLoading.value = false;
+      }
+    })(),
   ]);
-  pageLoading.value = false;
 });
 
 function goTo(name: string, query?: Record<string, string>) {
@@ -214,7 +218,7 @@ function onSelectRelated(id: number) {
 }
 </script>
 <template>
-  <div class="dashboard" v-loading="pageLoading">
+  <div class="dashboard">
     <!-- 头部：问候 + 今日概览 -->
     <header class="header">
       <div class="header-left">
@@ -264,7 +268,7 @@ function onSelectRelated(id: number) {
           <div class="card-title">近 30 天情报变化趋势</div>
           <div class="card-hint">点击某一天，查看当天情报</div>
         </header>
-        <div class="trend-body">
+        <div class="trend-body" v-loading="trendLoading">
           <InfoTrendChart
             :data="dailyTrend"
             height="220px"
@@ -327,7 +331,6 @@ function onSelectRelated(id: number) {
           v-for="event in focusEvents"
           :key="event.id"
           class="focus-item"
-          :class="event.priorityType"
           @click="openDetail(event.id)"
         >
           <CompetitorLogo
@@ -338,12 +341,11 @@ function onSelectRelated(id: number) {
             :size="44"
           />
           <div class="focus-body">
-            <div class="focus-head">
-              <span class="focus-brand">{{ event.brand }}</span>
+            <div class="focus-title-row">
+              <div class="focus-title">{{ event.title }}</div>
               <span class="event-tag" :class="event.tagType">{{ event.tag }}</span>
               <span class="focus-ago">{{ event.ago }}</span>
             </div>
-            <div class="focus-title">{{ event.title }}</div>
             <div class="focus-summary">{{ event.summary || event.desc }}</div>
           </div>
         </div>
@@ -661,11 +663,10 @@ function onSelectRelated(id: number) {
 
 .focus-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 1vw;
   padding: 1vh 1vw;
   border-radius: 1vmax;
-  border-left: 3px solid transparent;
   box-shadow: 0 1px 10px rgba(0, 0, 0, 0.1);
   cursor: pointer;
   transition: box-shadow 0.2s ease, transform 0.2s ease;
@@ -674,13 +675,8 @@ function onSelectRelated(id: number) {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
   transform: translateY(-1px);
 }
-.focus-item.high {
-  border-left-color: var(--app-color-orange);
-}
-.focus-item.mid {
-  border-left-color: var(--app-color-blue);
-}
 
+/* 图标固定尺寸（:size="44"），不随卡片高度变化 */
 .focus-logo {
   flex-shrink: 0;
 }
@@ -693,17 +689,11 @@ function onSelectRelated(id: number) {
   gap: 0.4vh;
 }
 
-.focus-head {
+.focus-title-row {
   display: flex;
   align-items: center;
   gap: 0.6vw;
   min-width: 0;
-}
-
-.focus-brand {
-  font-size: 1vmax;
-  font-weight: bold;
-  flex-shrink: 0;
 }
 
 .focus-ago {
@@ -714,6 +704,7 @@ function onSelectRelated(id: number) {
 }
 
 .focus-title {
+  min-width: 0;
   font-size: 1.15vmax;
   font-weight: bold;
   overflow-wrap: anywhere;
@@ -725,6 +716,7 @@ function onSelectRelated(id: number) {
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -795,7 +787,7 @@ function onSelectRelated(id: number) {
 
 .dynamics-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 1vh 1vw;
   padding: 1vh 1vw;
 }
@@ -807,6 +799,7 @@ function onSelectRelated(id: number) {
   min-width: 0;
   padding: 0.8vh 0.8vw;
   border-radius: 1vmax;
+  overflow: hidden; /* 兜底：内容再长也不出框 */
   background: var(--app-color-blue-light-5);
 }
 
@@ -814,20 +807,27 @@ function onSelectRelated(id: number) {
   flex-shrink: 0;
 }
 
+/* 竞品名优先显示：不参与收缩（原来它被挤成 0 宽，导致名字"消失"） */
 .dyn-name {
+  flex-shrink: 0;
+  max-width: 45%;
   font-size: 1vmax;
   font-weight: bold;
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* 空间不足时由"变化条数"先让位并省略，而不是牺牲名字 */
 .dyn-count {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 0.9vmax;
   color: var(--app-color-gray);
   white-space: nowrap;
-  margin-left: auto;
 }
 
 .dyn-status {

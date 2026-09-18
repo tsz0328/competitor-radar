@@ -1,7 +1,7 @@
 import enum
 from datetime import date
 
-from sqlalchemy import JSON, BigInteger, Date, Enum, Index, Integer, String, Text
+from sqlalchemy import JSON, BigInteger, Boolean, Date, Enum, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, BigIntPK, TimestampMixin, enum_values
@@ -35,6 +35,9 @@ class WeeklyReport(Base, TimestampMixin):
     range_end: Mapped[date] = mapped_column(Date, nullable=False)
     competitor_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     event_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # 收藏：跟着账号走（服务端持久化，前端不再自己存 localStorage）
+    favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     summary: Mapped[str | None] = mapped_column(Text)  # AI 写的核心摘要
     content: Mapped[str | None] = mapped_column(Text)  # AI 写的周报正文（Markdown）

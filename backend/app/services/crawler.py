@@ -6,6 +6,7 @@
 - 所有失败都收敛成 FetchResult.ok=False，不抛异常给上层。
 - 日志只记 URL / 类型 / 耗时 / 状态码 / 错误摘要，不记正文。
 """
+import asyncio
 import hashlib
 import html as html_lib
 import re
@@ -45,6 +46,7 @@ class FetchResult:
     html: str = ""
     error: str = ""
     elapsed_ms: int = 0
+    attempts: int = 1
 
 
 # ---- 内置的轻量正文提取（无第三方依赖）----
@@ -55,6 +57,7 @@ _BLOCK_END_RE = re.compile(
     r"</(p|div|li|tr|h[1-6]|section|article|header|footer|br)\s*>", re.I
 )
 _ANY_TAG_RE = re.compile(r"<[^>]+>")
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 # RSS/Atom：按"条目集合"提取，和注册表里 differ=item_set 的策略对应
 _ITEM_RE = re.compile(r"<(item|entry)\b[^>]*>(.*?)</\1>", re.I | re.S)
@@ -70,47 +73,123 @@ def _clean_error(message: str, limit: int = 300) -> str:
     """错误摘要截断，避免把整段堆栈写进库。"""
     message = re.sub(r"\s+", " ", (message or "").strip())
     return message[:limit]
+def _retry_wait_seconds(
+    attempt: int,
+    response: httpx.Response | None = None,
+    base_seconds: float | None = None,
+    max_wait_seconds: float | None = None,
+) -> float:
+    """计算下一次重试前等待的时间，优先尊重 Retry-After。"""
+    base = settings.crawl_retry_base_seconds if base_seconds is None else base_seconds
+    max_wait = (
+        settings.crawl_retry_max_wait_seconds
+        if max_wait_seconds is None
+        else max_wait_seconds
+    )
+    if response is not None:
+        value = (response.headers.get("Retry-After") or "").strip()
+        if value.isdigit():
+            delay = float(value)
+        else:
+            delay = base * (2**attempt)
+    else:
+        delay = base * (2**attempt)
+    return min(max(0.1, delay), max_wait)
 
 
-async def fetch_html(url: str, timeout: float | None = None) -> FetchResult:
-    """GET 一个页面。网络错误与 4xx/5xx 都返回 ok=False。
+async def fetch_html(
+    url: str,
+    timeout: float | None = None,
+    retry_count: int | None = None,
+    retry_backoff_seconds: float | None = None,
+    retry_max_wait_seconds: float | None = None,
+) -> FetchResult:
+    """GET 一个页面，并对 429/5xx 与瞬时网络错误做有限重试。
 
     timeout 可覆盖默认抓取超时（例如「校验网址」场景想用更短的等待）。
     """
     start = time.perf_counter()
-    try:
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=timeout if timeout is not None else settings.crawl_timeout_seconds,
-            headers={
-                "User-Agent": settings.crawl_user_agent,
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            },
-        ) as client:
-            response = await client.get(url)
-    except httpx.HTTPError as exc:
-        return FetchResult(
-            ok=False,
-            url=url,
-            error=_clean_error(f"请求失败：{type(exc).__name__}: {exc}"),
-            elapsed_ms=_ms(start),
-        )
+    max_retries = max(0, settings.crawl_retry_count if retry_count is None else retry_count)
+    retry_base = (
+        settings.crawl_retry_base_seconds
+        if retry_backoff_seconds is None
+        else retry_backoff_seconds
+    )
+    retry_max = (
+        settings.crawl_retry_max_wait_seconds
+        if retry_max_wait_seconds is None
+        else retry_max_wait_seconds
+    )
+    last_error = ""
+    last_status: int | None = None
 
-    elapsed = _ms(start)
-    if response.status_code >= 400:
+    for attempt in range(max_retries + 1):
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=timeout if timeout is not None else settings.crawl_timeout_seconds,
+                headers={
+                    "User-Agent": settings.crawl_user_agent,
+                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                },
+            ) as client:
+                response = await client.get(url)
+        except httpx.HTTPError as exc:
+            last_error = _clean_error(f"请求失败：{type(exc).__name__}: {exc}")
+            if attempt < max_retries:
+                await asyncio.sleep(
+                    _retry_wait_seconds(
+                        attempt,
+                        base_seconds=retry_base,
+                        max_wait_seconds=retry_max,
+                    )
+                )
+                continue
+            return FetchResult(
+                ok=False,
+                url=url,
+                error=last_error,
+                elapsed_ms=_ms(start),
+                attempts=attempt + 1,
+            )
+
+        elapsed = _ms(start)
+        if response.status_code < 400:
+            return FetchResult(
+                ok=True,
+                url=str(response.url),
+                http_status=response.status_code,
+                html=response.text,
+                elapsed_ms=elapsed,
+                attempts=attempt + 1,
+            )
+
+        last_status = response.status_code
+        last_error = explain_http_status(response.status_code)
+        if response.status_code in _RETRYABLE_STATUS_CODES and attempt < max_retries:
+            await asyncio.sleep(
+                _retry_wait_seconds(
+                    attempt, response, retry_base, retry_max
+                )
+            )
+            continue
+
         return FetchResult(
             ok=False,
             url=url,
             http_status=response.status_code,
-            error=explain_http_status(response.status_code),
+            error=last_error,
             elapsed_ms=elapsed,
+            attempts=attempt + 1,
         )
+
     return FetchResult(
-        ok=True,
-        url=str(response.url),
-        http_status=response.status_code,
-        html=response.text,
-        elapsed_ms=elapsed,
+        ok=False,
+        url=url,
+        http_status=last_status,
+        error=last_error or "抓取失败",
+        elapsed_ms=_ms(start),
+        attempts=max_retries + 1,
     )
 
 
@@ -173,7 +252,10 @@ _NOISE_LINE_RES = (
     # 整行仅为一个时刻（如 footer 的 09:30）；用"整行仅此"避免误伤"营业时间 09:00-18:00"区间
     re.compile(r"^\d{1,2}[:：]\d{2}(?:\s*[AP]M)?$"),
     # 浏览/阅读/播放计数：123 次阅读 / 1.2k views / 播放 456 次
-    re.compile(r"\d[\d,.]*\s*(?:次阅读|次浏览|次播放|次观看|次查看|阅读|views?|plays?|visits?)", re.I),
+    re.compile(
+        r"\d[\d,.]*\s*(?:次阅读|次浏览|次播放|次观看|次查看|阅读|views?|plays?|visits?)",
+        re.I,
+    ),
     re.compile(r"(?:阅读|浏览|播放|观看|查看)\s*\d[\d,.]*\s*次?"),
 )
 
@@ -200,6 +282,38 @@ def _html_to_text(raw_html: str) -> str:
     text = _BLOCK_END_RE.sub("\n", text)
     text = _ANY_TAG_RE.sub(" ", text)
     return html_lib.unescape(text)
+
+def _extract_article_text(raw_html: str) -> str:
+    """用 trafilatura（可用时）提取正文，否则退回内置 HTML 转文本。"""
+    if trafilatura is not None:
+        text = trafilatura.extract(
+            raw_html, include_comments=False, include_tables=True
+        )
+        if text:
+            return text
+    return _html_to_text(raw_html)
+
+def _focused_lines(lines: list[str], pattern: "re.Pattern[str]", radius: int = 2) -> list[str]:
+    """只保留命中行与其邻近行，避免把整个页面都留给 LLM。"""
+    keep: set[int] = set()
+    for index, line in enumerate(lines):
+        if pattern.search(line):
+            low = max(0, index - radius)
+            high = min(len(lines), index + radius + 1)
+            keep.update(range(low, high))
+    return [line for index, line in enumerate(lines) if index in keep]
+
+_FOCUS_PATTERNS: dict[str, "re.Pattern[str]"] = {
+    "price_table": re.compile(
+        (
+            r"[￥¥$€£]\s?\d|\d+\s?/\s?(?:月|年|季)|每\s?百万|per\s+1m|"
+            r"input|output|价格|定价|计费|套餐|订阅"
+        ),
+        re.I,
+    ),
+    "release_block": re.compile(r"新增|上线|发布|推出|支持|调整|修复|版本|v?\d+\.\d+", re.I),
+    "store_block": re.compile(r"版本|version|v?\d+\.\d+|评分|rating|更新|what's new", re.I),
+}
 
 
 def _extract_rss_items(raw_html: str) -> str:
@@ -229,12 +343,17 @@ def extract_text(raw_html: str, cfg: SourceTypeConfig) -> str:
     """按注册表的 extractor 策略提取正文，并做空白归一化与噪声剥离。"""
     if cfg.extractor == "rss":
         text = _extract_rss_items(raw_html)
-    elif trafilatura is not None:
-        text = trafilatura.extract(
-            raw_html, include_comments=False, include_tables=True
-        ) or _html_to_text(raw_html)
+        if not text.strip() and cfg.rss_fallback_to_html:
+            text = _extract_article_text(raw_html)
     else:
-        text = _html_to_text(raw_html)
+        text = _extract_article_text(raw_html)
+        focus = _FOCUS_PATTERNS.get(cfg.extractor)
+        if focus is not None:
+            lines = normalize_text(text).splitlines()
+            focused = _focused_lines(lines, focus)
+            # 聚焦后若只剩零星内容，宁可保留全文，避免把有效正文误判为空
+            if sum(len(line) for line in focused) >= settings.crawl_min_text_length:
+                text = "\n".join(focused)
     # 先归一化再剥离噪声：噪声行（相对时间/浏览量等）整行丢弃，
     # 保证进入 hash 与 diff 的都是"有意义的文本"。
     return strip_noise(normalize_text(text))

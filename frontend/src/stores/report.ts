@@ -1,12 +1,13 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
 import type { ReportDetail, ReportListResult } from "@/types/report";
-import { fetchReportList, fetchReportDetail } from "@/api/report";
+import {
+  fetchReportDetail,
+  fetchReportList,
+  setReportFavorite,
+} from "@/api/report";
 
 export const useReportStore = defineStore("report", () => {
-  // 收藏状态唯一数据源：左侧列表与右侧详情都以此为准，避免两端各自翻转导致不同步
-  const favoriteMap = ref<Record<number, boolean>>({});
-
   // 报告列表
   const listLoading = ref(false);
   const reportList = ref<ReportListResult | null>(null);
@@ -17,12 +18,6 @@ export const useReportStore = defineStore("report", () => {
     try {
       const list = await fetchReportList();
       if (seq !== listSeq) return; // 已有更新的请求，丢弃本次
-      // 首次加载时用接口数据初始化收藏表，本地已有的修改优先保留
-      for (const r of list.reports) {
-        if (!(r.id in favoriteMap.value)) {
-          favoriteMap.value[r.id] = r.favorite;
-        }
-      }
       reportList.value = list;
     } finally {
       if (seq === listSeq) listLoading.value = false;
@@ -39,32 +34,31 @@ export const useReportStore = defineStore("report", () => {
     try {
       const detail = await fetchReportDetail(id);
       if (seq !== detailSeq) return; // 快速切换报告时，避免旧详情覆盖新详情
-      // 详情每次都从接口重新拉取，需要用收藏表校正，否则本地收藏会被接口值覆盖
-      if (id in favoriteMap.value) {
-        detail.favorite = favoriteMap.value[id];
-      } else {
-        favoriteMap.value[id] = detail.favorite;
-      }
       reportDetail.value = detail;
     } finally {
       if (seq === detailSeq) detailLoading.value = false;
     }
   }
 
-  // 收藏切换：以收藏表为准，同步更新列表项与当前详情
-  function toggleFavorite(id: number): boolean {
-    const next = !favoriteMap.value[id];
-    favoriteMap.value[id] = next;
+  /**
+   * 切换收藏：写服务端（跟着账号走），成功后同步列表项与当前详情。
+   * 失败时抛错，由调用方提示；不做乐观更新，避免与服务端状态不一致。
+   */
+  async function toggleFavorite(id: number): Promise<boolean> {
     const item = reportList.value?.reports.find((r) => r.id === id);
+    const current =
+      reportDetail.value?.id === id
+        ? reportDetail.value.favorite
+        : (item?.favorite ?? false);
+    const next = !current;
+
+    const detail = await setReportFavorite(id, next);
     if (item) item.favorite = next;
-    if (reportDetail.value?.id === id) {
-      reportDetail.value.favorite = next;
-    }
-    return next;
+    if (reportDetail.value?.id === id) reportDetail.value.favorite = next;
+    return detail.favorite;
   }
 
   return {
-    favoriteMap,
     listLoading,
     reportList,
     loadReportList,

@@ -11,7 +11,7 @@
 
 1. **一次建模，多源复用**：把 `competitors.monitor_urls` 这份无结构 JSON 升级为独立 `monitor_sources` 表 + `SOURCE_TYPE_REGISTRY` 注册表，让"竞品挂了哪些监控源、每个源怎么抓、上次抓得怎么样"全部结构化、可索引、可聚合。
 2. **v2 可插拔**：新增一种数据源（如 Shopify 商品页）不触碰核心采集链路。
-3. **性能分流**：只有确需 JS 渲染的页面才走 Playwright（1-3 秒/次、内存占用高）；静态 RSS / 状态页走 httpx（毫秒级）。
+3. **性能分流**：只有确需 JS 渲染的页面才走 Playwright（1-3 秒/次、内存占用高）；静态 RSS 走 httpx（毫秒级），状态页等按注册表走浏览器。
 4. **健康度可见**：单源记录 `last_crawled_at` / `last_status` / `fail_count`，单源失败不拖垮整批。
 
 ---
@@ -48,7 +48,7 @@
 | `changelog` | 更新日志 | browser | 1440 | `trafilatura` | `item_set`（增量条目优先） | 新版本 / 新功能 / 修复说明 |
 | `blog` | 官方博客 | http（RSS 优先） | 1440 | `rss`（无 RSS 时降级 `trafilatura`） | `item_set`（标题+摘要集合） | 官方文章发布（产品 / 行业 / 公司动态） |
 | `docs` | 帮助文档 | browser | 10080（每周） | `trafilatura` | `full_text` | 帮助文档变更（功能说明 / 使用方式变化） |
-| `status` | 服务状态页 | http | 60（每小时） | `trafilatura` | `full_text` | 服务状态 / 故障 / 维护公告 |
+| `status` | 服务状态页 | browser | 60（每小时） | `trafilatura` | `full_text` | 服务状态 / 故障 / 维护公告 |
 | `rss` | 通用 RSS/Atom | http | 60 | `rss` | `item_set` | 订阅源条目变化 |
 | `app_store` | 应用商店页 | browser | 1440 | `store_block`（版本号+更新说明） | `structured`（版本号比对优先） | 应用版本更新 / 评分波动 / 新功能上线 |
 

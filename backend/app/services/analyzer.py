@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import get_cache
 from app.core.config import get_settings
 from app.core.event_types import EVENT_TYPE_LABELS
 from app.core.llm import get_llm_client, is_significant_change
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 STATUS_SUCCESS = "success"
 STATUS_FAILED = "failed"
+STATUS_SKIPPED = "skipped"
 
 
 @dataclass
@@ -47,14 +49,29 @@ class SourceCrawlOutcome:
 
 
 def build_diff(old_text: str, new_text: str) -> str:
-    """统一的 unified diff，只保留必要上下文并按上限截断。"""
+    """生成统一 diff，兼容旧调用；需要按 source_type 分流时传 build_source_diff。"""
+    return _build_unified_diff(old_text, new_text, n=1)
+
+def build_source_diff(old_text: str, new_text: str, differ: str) -> str:
+    """按注册表的 differ 策略生成变化文本。
+
+    full_text 保留少量上下文；item_set/structured 把行当作条目排序，
+    输出零上下文的 + / - 行，适合 RSS、更新日志和版本/价格类 text。
+    """
+    if differ in ("item_set", "structured"):
+        old_lines = sorted({line for line in old_text.splitlines() if line.strip()})
+        new_lines = sorted({line for line in new_text.splitlines() if line.strip()})
+        return _build_unified_diff("\n".join(old_lines), "\n".join(new_lines), n=0)
+    return _build_unified_diff(old_text, new_text, n=1)
+
+def _build_unified_diff(old_text: str, new_text: str, n: int) -> str:
     diff = difflib.unified_diff(
         old_text.splitlines(),
         new_text.splitlines(),
         fromfile="上次",
         tofile="本次",
         lineterm="",
-        n=1,
+        n=n,
     )
     text = "\n".join(diff)
     if len(text) > settings.crawl_max_diff_chars:
@@ -130,7 +147,7 @@ async def _create_event(
     先做粗筛再调 LLM：太轻微的变化只留快照、不生成事件——
     既避免噪声打扰用户，也避免为无意义的变化消耗 LLM 开销。
     粗筛不只看变更行数，也看是否命中价格/版本/变更动词等高价值信号，
-    否则「专业版 ￥99 → ￥129」这种单行关键改动会被误杀。
+    否则「专业版 ￥99 -> ￥129」这种单行关键改动会被误杀。
 
     返回新创建的事件对象（供调用方做高优先级即时通知）；过轻则不生成，返回 None。
     """
@@ -230,7 +247,28 @@ async def crawl_source(
     competitor: Competitor,
     source: MonitorSource,
 ) -> SourceCrawlOutcome:
-    """抓一个监控源：抓取 → 提取 → 与上次基准比对 → 留痕 → 更新健康度。
+    """抓一个监控源，并加上源级非阻塞锁。"""
+    lock_key = f"crawl:source:{source.id}"
+    token = await get_cache().acquire(lock_key, settings.crawl_source_lock_ttl_seconds)
+    if token is None:
+        return SourceCrawlOutcome(
+            source_id=source.id,
+            source_name=source.name,
+            source_type=source.source_type,
+            status=STATUS_SKIPPED,
+            error="该监控源正在抓取中，已跳过本次触发",
+        )
+    try:
+        return await _crawl_source_locked(db, competitor, source)
+    finally:
+        await get_cache().release(lock_key, token)
+
+async def _crawl_source_locked(
+    db: AsyncSession,
+    competitor: Competitor,
+    source: MonitorSource,
+) -> SourceCrawlOutcome:
+    """抓取 -> 提取 -> 与上次基准比对 -> 留痕 -> 更新健康度。"
 
     任何异常都在这里收敛成 failed 结果，不抛穿主流程——
     单个源失败不影响同批次其他源（见 docs/data-source-design.md 第八节）。
@@ -317,7 +355,7 @@ async def crawl_source(
         http_status=fetch.http_status,
         is_success=True,
         change_detected=True,
-        diff_text=build_diff(previous.clean_text or "", text),
+        diff_text=build_source_diff(previous.clean_text or "", text, cfg.differ),
     )
     db.add(snapshot)
     # 先 flush 拿到自增 id，事件才能精确归因到"哪一条快照"

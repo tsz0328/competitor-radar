@@ -92,7 +92,7 @@ export interface CrawlSourceResult {
   sourceId: number;
   sourceName: string;
   sourceType: SourceType;
-  status: "success" | "failed";
+  status: "success" | "failed" | "skipped";
   httpStatus?: number | null;
   /** 相比上次基准是否发生变化 */
   changed: boolean;

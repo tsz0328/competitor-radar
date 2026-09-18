@@ -377,7 +377,7 @@ async def generate_weekly_report(
 
 
 def to_list_item(report: WeeklyReport) -> dict:
-    """报告列表项（favorite 是前端本地状态，这里恒为 false）。"""
+    """报告列表项。"""
     type_label = "周报" if report.report_type == ReportType.WEEKLY else "月报"
     return {
         "id": report.id,
@@ -387,7 +387,7 @@ def to_list_item(report: WeeklyReport) -> dict:
         "range": _range_text(report.range_start, report.range_end),
         "competitors": report.competitor_count,
         "generatedAt": format_time(report.created_at, "%Y-%m-%d"),
-        "favorite": False,
+        "favorite": bool(report.favorite),
         "monthGroup": f"{report.range_end.year}年{report.range_end.month}月",
     }
 
@@ -402,7 +402,7 @@ def to_detail(report: WeeklyReport) -> dict:
         "rangeStart": report.range_start.isoformat(),
         "rangeEnd": report.range_end.isoformat(),
         "competitors": report.competitor_count,
-        "favorite": False,
+        "favorite": bool(report.favorite),
         "summary": report.summary or "",
         "content": report.content or "",
         **(report.payload or {}),
