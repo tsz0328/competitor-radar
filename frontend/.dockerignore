@@ -1,0 +1,6 @@
+# 构建产物与依赖在容器里重新生成，不拷进构建上下文
+node_modules
+dist
+.vite
+*.log
+.DS_Store
