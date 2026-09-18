@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
@@ -15,6 +16,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.source_registry import RenderMode, SourceType
 from app.models.base import Base, BigIntPK, TimestampMixin, enum_values
+
+if TYPE_CHECKING:  # 仅用于类型标注；运行时由 SQLAlchemy 解析字符串引用
+    from app.models.competitor import Competitor
 
 
 class MonitorSource(Base, TimestampMixin):

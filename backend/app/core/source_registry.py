@@ -51,7 +51,7 @@ SOURCE_TYPE_REGISTRY: dict[SourceType, SourceTypeConfig] = {
         "帮助文档", RenderMode.BROWSER, 10080, "trafilatura", "full_text", "文档内容变更"
     ),
     SourceType.STATUS: SourceTypeConfig(
-        "服务状态页", RenderMode.HTTP, 60, "trafilatura", "full_text", "故障/维护公告"
+        "服务状态页", RenderMode.BROWSER, 60, "trafilatura", "full_text", "故障/维护公告"
     ),
     SourceType.RSS: SourceTypeConfig(
         "RSS 订阅", RenderMode.HTTP, 60, "rss", "item_set", "订阅源条目变化"

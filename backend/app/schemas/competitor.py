@@ -1,9 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 from pydantic.alias_generators import to_camel
 
-from app.core.timeutil import format_time, humanize_ago
+from app.core.timeutil import format_time, humanize_ago, to_utc
 from app.models.competitor import CompetitorStatus
 from app.schemas.source import MonitorSourceCreate, MonitorSourceOut, normalize_url
 
@@ -26,6 +26,43 @@ def _humanize_interval(minutes: int) -> str:
 def _failed_sources(sources: list[MonitorSourceOut]) -> list[MonitorSourceOut]:
     """最近一次抓取失败的监控源（含因连续失败被自动停用的，状态要如实反映）。"""
     return [s for s in sources if s.last_status == "failed"]
+
+
+def _auto_disabled_sources(sources: list[MonitorSourceOut]) -> list[MonitorSourceOut]:
+    """因连续失败被自动停用、当前仍处于禁用态的监控源。"""
+    return [s for s in sources if s.auto_disabled]
+
+
+def _next_crawl_at(sources: list[MonitorSourceOut]) -> str:
+    """预计下次抓取时间：取所有**启用中**的源里最早到期的那个。
+
+    口径与调度器一致（上次抓取时间 + 该源自己的间隔）。
+    调度器每分钟扫一次，所以这里给的是"最早可能被抓"的时间点——
+    界面上用「即将」而不是精确到秒，避免给出比实际更精确的暗示。
+    """
+    enabled = [s for s in sources if s.enabled]
+    if not enabled:
+        return "已暂停"
+
+    now = datetime.now(timezone.utc)
+    due_times: list[datetime] = []
+    for source in enabled:
+        last = to_utc(source.last_crawled_at)
+        if last is None:
+            return "即将抓取"  # 从未抓过 → 下一轮扫描就会抓
+        due_times.append(last + timedelta(minutes=max(1, source.interval_minutes)))
+
+    earliest = min(due_times)
+    if earliest <= now:
+        return "即将抓取"
+
+    local = earliest.astimezone()
+    delta_days = (local.date() - datetime.now().astimezone().date()).days
+    if delta_days == 0:
+        return f"今天 {local:%H:%M}"
+    if delta_days == 1:
+        return f"明天 {local:%H:%M}"
+    return f"{local.month}月{local.day}日 {local:%H:%M}"
 
 
 class CompetitorCreate(BaseModel):
@@ -151,6 +188,12 @@ class CompetitorOut(BaseModel):
 
     @computed_field
     @property
+    def next_crawl_at(self) -> str:
+        """预计下次抓取时间（由定时调度器驱动，见里程碑 10）。"""
+        return _next_crawl_at(self.sources)
+
+    @computed_field
+    @property
     def enabled(self) -> bool:
         return self.status == CompetitorStatus.ACTIVE
 
@@ -174,9 +217,13 @@ class CompetitorOut(BaseModel):
         if self.status != CompetitorStatus.ACTIVE:
             return "手动暂停"
         failed = _failed_sources(self.sources)
-        if failed:
-            return f"抓取失败 {sum(s.fail_count for s in failed)} 次"
-        return "正常"
+        if not failed:
+            return "正常"
+        desc = f"抓取失败 {sum(s.fail_count for s in failed)} 次"
+        stopped = _auto_disabled_sources(self.sources)
+        if stopped:
+            desc += f"，{len(stopped)} 个页面已停用"
+        return desc
 
     @computed_field
     @property
@@ -199,4 +246,39 @@ class CompetitorOut(BaseModel):
         if not self.official_url:
             return None
         host = self.official_url.split("//")[-1].split("/")[0].strip()
+        host = host[4:] if host.startswith("www.") else host
         return f"https://{host}/favicon.ico" if host else None
+
+
+class FaviconOut(BaseModel):
+    """真实图标解析结果（给 SPA 站点兜底，见 services/favicon.py）。"""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    logo_url: str | None = None
+
+
+class SuggestRequest(BaseModel):
+    """「智能预填」接口的请求：竞品名称 + 可选分类候选项。
+
+    use_llm：是否允许调用 AI 推断官网/分类。
+    - True（默认）：「智能检测填充」按钮走 LLM，能处理中文品牌名等复杂情况；
+    - False：用户自己填竞品时的自动预填，只用规则域名探测，不消耗 AI。
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    name: str = Field(..., min_length=1, max_length=100)
+    categories: list[str] = Field(default_factory=list)
+    use_llm: bool = True
+
+
+class SuggestResult(BaseModel):
+    """「智能预填」接口的响应：推断出的官网地址与分类（可能为空）。"""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    official_url: str | None = None
+    category: str | None = None
+    source: str = "none"  # llm | probe | none
+    message: str = ""

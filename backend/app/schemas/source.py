@@ -10,7 +10,10 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 from pydantic.alias_generators import to_camel
 
+from app.core.config import get_settings
 from app.core.source_registry import RenderMode, SourceType, get_source_config
+
+settings = get_settings()
 
 # 频率的合理区间：最短 5 分钟，最长 30 天（防止误填 0 或天文数字）
 _MIN_INTERVAL = 5
@@ -51,7 +54,13 @@ class MonitorSourceCreate(BaseModel):
 
 
 class SourceTypeOption(BaseModel):
-    """前端"选择监控页面"的候选项：类型 + 中文名 + 抓取方式 + 默认频率。"""
+    """前端"选择监控页面"的候选项：类型 + 中文名 + 抓取方式 + 默认频率。
+
+    必须带 camelCase 别名：前端按 defaultIntervalMinutes 读取，
+    缺了别名会拿到蛇形字段 → 默认频率取不到值，监控页的频率下拉框会显示为空。
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     type: SourceType
     label: str
@@ -82,3 +91,64 @@ class MonitorSourceOut(BaseModel):
     def label(self) -> str:
         """注册表里的中文名，避免前端再维护一份映射。"""
         return get_source_config(self.source_type).label
+
+    @computed_field
+    @property
+    def auto_disabled(self) -> bool:
+        """是否处于「连续失败被自动停用」状态：禁用且失败计数达阈值。
+
+        前端据此展示「已自动停用 N 个页面」并提供一键复活入口。
+        """
+        return (not self.enabled) and (self.fail_count or 0) >= settings.crawl_max_fail_count
+
+
+class UrlCheckRequest(BaseModel):
+    """「校验网址可达」接口的请求：就一个 URL。"""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    url: str
+
+
+class UrlCheckResult(BaseModel):
+    """「校验网址可达」接口的响应：给人看的结论。"""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    url: str
+    ok: bool
+    http_status: int | None = None
+    message: str
+
+
+class DiscoverRequest(BaseModel):
+    """「自动寻找监控页」接口的请求：官网地址 + 可选"跳过这些类型"。"""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    official_url: str
+    # 前端已经检测通过、不想再找的页面类型（如已打勾的定价页）
+    skip_types: list[SourceType] = Field(default_factory=list)
+
+
+class DiscoveredSourceOut(BaseModel):
+    """某个类型的发现结果；found=false 时 url 为 None。"""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    source_type: SourceType
+    label: str
+    url: str | None = None
+    found: bool
+    origin: str = ""  # link | sitemap | common
+    http_status: int | None = None
+
+
+class DiscoverResult(BaseModel):
+    """「自动寻找监控页」接口的响应：逐类型给出最可能的地址。"""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    official_url: str
+    homepage_reachable: bool
+    sources: list[DiscoveredSourceOut]

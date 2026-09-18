@@ -24,8 +24,10 @@ ERR_TOKEN_USER_GONE = 40103       # 令牌里的用户已被删除
 ERR_USER_NOT_FOUND = 40402        # 查询用户：不存在
 ERR_COMPETITOR_NOT_FOUND = 40401  # 查询竞品：不存在
 ERR_EVENT_NOT_FOUND = 40403       # 查询情报事件：不存在
+ERR_REPORT_NOT_FOUND = 40404      # 查询周报：不存在
 ERR_INVALID_SOURCE = 40002        # 新建监控源：缺少可用网址
 ERR_NO_ENABLED_SOURCE = 40003     # 手动抓取：该竞品没有启用的监控页面
+ERR_LLM_CONFIG_INVALID = 40004    # 保存模型设置：启用时配置不完整
 
 # 前端据此判断是否清除 token 并跳登录页
 AUTH_ERROR_CODES = {ERR_BAD_CREDENTIALS, ERR_TOKEN_INVALID, ERR_TOKEN_USER_GONE}

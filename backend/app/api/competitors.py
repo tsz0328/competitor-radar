@@ -1,4 +1,4 @@
-import logging
+import re
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, status
@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.exceptions import (
     ERR_COMPETITOR_NOT_FOUND,
@@ -13,18 +14,124 @@ from app.core.exceptions import (
     ERR_NO_ENABLED_SOURCE,
     BusinessError,
 )
+from app.core.http_errors import explain_http_status
 from app.core.source_registry import SourceType, get_source_config
 from app.models.competitor import Competitor
 from app.models.source import MonitorSource
 from app.models.user import User
-from app.schemas.competitor import CompetitorCreate, CompetitorOut, CompetitorUpdate
+from app.schemas.competitor import (
+    CompetitorCreate,
+    CompetitorOut,
+    CompetitorUpdate,
+    FaviconOut,
+    SuggestRequest,
+    SuggestResult,
+)
 from app.schemas.snapshot import CrawlResult, CrawlSourceResult
-from app.schemas.source import MonitorSourceCreate
-from app.services.analyzer import STATUS_FAILED, STATUS_SUCCESS, crawl_source
+from app.schemas.source import (
+    DiscoveredSourceOut,
+    DiscoverRequest,
+    DiscoverResult,
+    MonitorSourceCreate,
+    UrlCheckRequest,
+    UrlCheckResult,
+)
+from app.services.analyzer import (
+    STATUS_FAILED,
+    STATUS_SUCCESS,
+    run_competitor_crawl,
+)
+from app.services.crawler import fetch_html
+from app.services.discoverer import discover_sources
+from app.services.favicon import resolve_favicon
+from app.services.suggester import suggest_competitor
+
+settings = get_settings()
 
 router = APIRouter(prefix="/api/competitors", tags=["competitors"])
 
-logger = logging.getLogger(__name__)
+
+@router.post("/check-url", response_model=UrlCheckResult)
+async def check_source_url(
+    payload: UrlCheckRequest,
+    _: User = Depends(get_current_user),
+) -> UrlCheckResult:
+    """保存竞品前，先悄悄探一下某个监控网址是否可达。
+
+    仅发一次轻量 GET（短超时），不落库、不渲染；目的是从源头拦住"路径填错"
+    这类低级错误——返回给人看的 message，前端直接弹提示。
+    """
+    url = (payload.url or "").strip()
+    if not re.match(r"^https?://", url, re.IGNORECASE):
+        return UrlCheckResult(
+            url=url,
+            ok=False,
+            http_status=None,
+            message="网址格式不正确，需以 http:// 或 https:// 开头",
+        )
+
+    result = await fetch_html(url, timeout=settings.check_url_timeout_seconds)
+    if result.ok:
+        return UrlCheckResult(
+            url=url,
+            ok=True,
+            http_status=result.http_status,
+            message=f"可正常访问（HTTP {result.http_status}）",
+        )
+    # 网络错误走 result.error；4xx/5xx 已由 explain_http_status 翻成中文
+    message = result.error or explain_http_status(result.http_status or 0)
+    return UrlCheckResult(
+        url=url,
+        ok=False,
+        http_status=result.http_status,
+        message=message,
+    )
+
+
+@router.post("/discover-sources", response_model=DiscoverResult)
+async def discover_source_urls(
+    payload: DiscoverRequest,
+    _: User = Depends(get_current_user),
+) -> DiscoverResult:
+    """按官网首页里的链接，自动寻找定价页/更新日志/博客/文档/状态页/RSS 的地址。
+
+    只读探测（不落库）：拉首页 → 解析链接/sitemap → 关键词匹配 → 短超时校验可达。
+    用户在前端点「自动寻找页面」时调用，拿到结果后由前端勾选并回填地址。
+    """
+    url = (payload.official_url or "").strip()
+    if url and not re.match(r"^https?://", url, re.IGNORECASE):
+        url = "https://" + url
+    if not url:
+        return DiscoverResult(official_url="", homepage_reachable=False, sources=[])
+
+    reachable, found = await discover_sources(url, skip_types=payload.skip_types)
+    return DiscoverResult(
+        official_url=url,
+        homepage_reachable=reachable,
+        sources=[DiscoveredSourceOut(**asdict(s)) for s in found],
+    )
+
+
+@router.post("/suggest", response_model=SuggestResult)
+async def suggest_competitor_profile(
+    payload: SuggestRequest,
+    _: User = Depends(get_current_user),
+) -> SuggestResult:
+    """根据竞品名称，智能预填「官网地址」与「分类」。
+
+    只读探测（不落库）：use_llm=True 时优先让 LLM 推断域名/分类并探活（「智能检测填充」按钮）；
+    use_llm=False 时只用规则域名探测、不调 AI（用户自己填竞品时的自动预填）。
+    无 Key 时两种分支都会退回常见域名探测。
+    """
+    result = await suggest_competitor(
+        payload.name, payload.categories, use_llm=payload.use_llm
+    )
+    return SuggestResult(
+        official_url=result.official_url,
+        category=result.category,
+        source=result.source,
+        message=result.message,
+    )
 
 
 async def _get_owned(db: AsyncSession, competitor_id: int, current_user: User) -> Competitor:
@@ -142,6 +249,20 @@ async def list_competitors(
     return result.scalars().all()
 
 
+@router.get("/favicon", response_model=FaviconOut)
+async def competitor_favicon(
+    domain: str,
+    current_user: User = Depends(get_current_user),
+):
+    """解析竞品官网的真实图标地址（读首页 HTML 的 <link rel="icon">，按域名缓存）。
+
+    前端在直连 favicon.ico / apple-touch-icon.png 都失败时才调用，用于兜底那些
+    把真实图标挂在 CDN 上的 SPA 站点（如豆包）。必须声明在 `/{competitor_id}`
+    之前，否则 "favicon" 会被当成路径参数去匹配。
+    """
+    return FaviconOut(logo_url=await resolve_favicon(domain))
+
+
 @router.get("/{competitor_id}", response_model=CompetitorOut)
 async def get_competitor(
     competitor_id: int,
@@ -177,6 +298,41 @@ async def update_competitor(
     return result.scalar_one()
 
 
+@router.post("/{competitor_id}/revive-sources", response_model=CompetitorOut)
+async def revive_sources(
+    competitor_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """重新启用被「连续失败自动停用」的监控源，并清零失败计数。
+
+    只复活 auto_disabled 的源（enabled=False 且 fail_count 达阈值），
+    不影响仍正常或手动暂停的源；没有可复活的源时直接返回当前状态。
+    """
+    competitor = await _get_owned(db, competitor_id, current_user)
+    revived = 0
+    for source in competitor.sources:
+        if (
+            not source.enabled
+            and (source.fail_count or 0) >= settings.crawl_max_fail_count
+        ):
+            source.enabled = True
+            source.fail_count = 0
+            source.last_status = None
+            source.last_error = None
+            revived += 1
+    if revived == 0:
+        result = await db.execute(
+            select(Competitor).where(Competitor.id == competitor.id)
+        )
+        return result.scalar_one()
+    await db.commit()
+    result = await db.execute(
+        select(Competitor).where(Competitor.id == competitor.id)
+    )
+    return result.scalar_one()
+
+
 @router.post("/{competitor_id}/crawl", response_model=CrawlResult)
 async def crawl_competitor(
     competitor_id: int,
@@ -195,27 +351,7 @@ async def crawl_competitor(
             ERR_NO_ENABLED_SOURCE, "该竞品没有启用的监控页面，请先启用至少一个", 400
         )
 
-    outcomes = []
-    for source in sources:
-        outcome = await crawl_source(db, competitor, source)
-        outcomes.append(outcome)
-        # 只记 URL / 类型 / 状态码 / 耗时 / 错误摘要，不记正文（见 data-source-design 第八节）
-        logger.log(
-            logging.WARNING if outcome.status == STATUS_FAILED else logging.INFO,
-            "crawl competitor=%s source=%s type=%s status=%s http=%s changed=%s "
-            "first_time=%s event_created=%s duration=%sms url=%s error=%s",
-            competitor.id,
-            source.id,
-            source.source_type.value,
-            outcome.status,
-            outcome.http_status,
-            outcome.changed,
-            outcome.first_time,
-            outcome.event_created,
-            outcome.duration_ms,
-            source.url,
-            outcome.error,
-        )
+    outcomes = await run_competitor_crawl(db, competitor, sources)
     await db.commit()
 
     return CrawlResult(

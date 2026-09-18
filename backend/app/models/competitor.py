@@ -1,9 +1,13 @@
 import enum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import BigInteger, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, BigIntPK, TimestampMixin, enum_values
+
+if TYPE_CHECKING:  # 仅用于类型标注；运行时由 SQLAlchemy 解析字符串引用
+    from app.models.source import MonitorSource
 
 
 class CompetitorStatus(str, enum.Enum):

@@ -36,7 +36,9 @@ class IntelligenceEvent(Base, TimestampMixin):
         nullable=False,
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
-    summary: Mapped[str | None] = mapped_column(Text)  # AI 生成的一句话说明
+    summary: Mapped[str | None] = mapped_column(Text)  # AI 生成的一句话说明（事实层面）
+    # AI 对该变化的"推断 / 影响判断"：与 summary 的事实相分离，明确标注为 AI 分析、非页面事实
+    ai_analysis: Mapped[str | None] = mapped_column(Text)
     diff_detail: Mapped[str | None] = mapped_column(Text)  # 触发本次事件的差异原文
     keywords: Mapped[list[str] | None] = mapped_column(JSON)
     confidence: Mapped[float] = mapped_column(Float, default=0.6, nullable=False)

@@ -17,7 +17,9 @@ from pathlib import Path
 import httpx
 
 from app.core.config import BACKEND_DIR, get_settings
-from app.core.source_registry import SourceTypeConfig
+from app.core.http_errors import explain_http_status
+from app.core.source_registry import RenderMode, SourceTypeConfig
+from app.services import browser
 
 settings = get_settings()
 
@@ -70,13 +72,16 @@ def _clean_error(message: str, limit: int = 300) -> str:
     return message[:limit]
 
 
-async def fetch_html(url: str) -> FetchResult:
-    """GET 一个页面。网络错误与 4xx/5xx 都返回 ok=False。"""
+async def fetch_html(url: str, timeout: float | None = None) -> FetchResult:
+    """GET 一个页面。网络错误与 4xx/5xx 都返回 ok=False。
+
+    timeout 可覆盖默认抓取超时（例如「校验网址」场景想用更短的等待）。
+    """
     start = time.perf_counter()
     try:
         async with httpx.AsyncClient(
             follow_redirects=True,
-            timeout=settings.crawl_timeout_seconds,
+            timeout=timeout if timeout is not None else settings.crawl_timeout_seconds,
             headers={
                 "User-Agent": settings.crawl_user_agent,
                 "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
@@ -97,7 +102,7 @@ async def fetch_html(url: str) -> FetchResult:
             ok=False,
             url=url,
             http_status=response.status_code,
-            error=f"HTTP {response.status_code}",
+            error=explain_http_status(response.status_code),
             elapsed_ms=elapsed,
         )
     return FetchResult(
@@ -109,6 +114,37 @@ async def fetch_html(url: str) -> FetchResult:
     )
 
 
+async def fetch_auto(url: str, cfg: SourceTypeConfig) -> FetchResult:
+    """按注册表的 render 策略抓取，必要时用真浏览器兜底。
+
+    - render=http：只走 httpx（RSS / 状态页这类，毫秒级）
+    - render=browser：**先 httpx 试探**——很多"标了 browser"的页面其实是静态的，
+      毫秒级就能拿到；只有拿不到有效正文时才动真浏览器，避免无差别上
+      Playwright（单次 1-3 秒、内存占用高）。
+    """
+    first = await fetch_html(url)
+    if (
+        cfg.render != RenderMode.BROWSER
+        or not settings.browser_render_enabled
+        or browser.availability_note()
+    ):
+        return first
+    if first.ok and len(extract_text(first.html, cfg)) >= settings.crawl_min_text_length:
+        return first
+
+    rendered = await browser.fetch_rendered(url)
+    if not rendered.ok:
+        # 保留 httpx 那次的结果：它的失败原因更贴近"到底发生了什么"
+        return first
+    return FetchResult(
+        ok=True,
+        url=rendered.url,
+        http_status=rendered.http_status,
+        html=rendered.html,
+        elapsed_ms=rendered.elapsed_ms,
+    )
+
+
 def normalize_text(text: str) -> str:
     """空白归一化：去掉多余空格与空行，让 Diff 只反映真实内容变化。"""
     text = unicodedata.normalize("NFKC", text or "")
@@ -117,6 +153,44 @@ def normalize_text(text: str) -> str:
         line = re.sub(r"[ \t\u00a0\u3000]+", " ", line).strip()
         if line:
             lines.append(line)
+    return "\n".join(lines)
+
+
+# ---- 噪声行识别：这些往往是页面每次渲染都会变、但不携带"竞品情报"的内容 ----
+# 命中即整行丢弃，避免"Footer 时间 / 相对时间 / 浏览量"等把 hash 与 diff 污染成假变化。
+# 设计取舍：只打"明显动态"的行，避免误伤正文——例如"发布于/更新于 2026-09-18"（发布日期，
+# 对更新日志是有意义内容）与"营业时间 09:00-18:00"（时间区间）都**不**在此列。
+_NOISE_LINE_RES = (
+    # 相对时间（中文）：3 分钟前 / 2 小时前 / 刚刚
+    re.compile(r"\d+\s*(?:秒|分钟|分|小时|天|日|周|月|年)\s*前"),
+    re.compile(r"刚刚"),
+    # 相对时间（英文）：3 minutes ago / just now
+    re.compile(r"\d+\s*(?:seconds?|minutes?|hours?|days?|weeks?|months?|years?)\s*ago", re.I),
+    re.compile(r"just now", re.I),
+    # 动态元数据行（页面"何时刷新/生成"，并非内容本身）：当前时间 / 更新时间 / 最后更新 /
+    # 最后修改 / 刷新时间（不含"发布于/更新于"，后者多为有含义的发布日期）
+    re.compile(r"^(?:当前时间|更新时间|最后更新|最后修改|刷新时间)\b", re.I),
+    # 整行仅为一个时刻（如 footer 的 09:30）；用"整行仅此"避免误伤"营业时间 09:00-18:00"区间
+    re.compile(r"^\d{1,2}[:：]\d{2}(?:\s*[AP]M)?$"),
+    # 浏览/阅读/播放计数：123 次阅读 / 1.2k views / 播放 456 次
+    re.compile(r"\d[\d,.]*\s*(?:次阅读|次浏览|次播放|次观看|次查看|阅读|views?|plays?|visits?)", re.I),
+    re.compile(r"(?:阅读|浏览|播放|观看|查看)\s*\d[\d,.]*\s*次?"),
+)
+
+
+def strip_noise(text: str) -> str:
+    """丢弃"每轮渲染都会变却没有情报价值"的行（相对时间、动态元数据、浏览计数）。
+
+    放在正文提取与空白归一化之后、计算 content_hash 之前：
+    - 噪声行消失 → 相同实质内容两次抓取 hash 不变 → 不再产生假情报事件；
+    - 同时让留存下来的 diff 只反映"真正有意义"的变化。
+    只整行丢弃、不部分改写，避免误伤正文里偶尔出现的时间/数字。
+    """
+    lines = [
+        line
+        for line in (text or "").splitlines()
+        if not any(rx.search(line) for rx in _NOISE_LINE_RES)
+    ]
     return "\n".join(lines)
 
 
@@ -152,7 +226,7 @@ def _extract_rss_items(raw_html: str) -> str:
 
 
 def extract_text(raw_html: str, cfg: SourceTypeConfig) -> str:
-    """按注册表的 extractor 策略提取正文，并做空白归一化。"""
+    """按注册表的 extractor 策略提取正文，并做空白归一化与噪声剥离。"""
     if cfg.extractor == "rss":
         text = _extract_rss_items(raw_html)
     elif trafilatura is not None:
@@ -161,7 +235,9 @@ def extract_text(raw_html: str, cfg: SourceTypeConfig) -> str:
         ) or _html_to_text(raw_html)
     else:
         text = _html_to_text(raw_html)
-    return normalize_text(text)
+    # 先归一化再剥离噪声：噪声行（相对时间/浏览量等）整行丢弃，
+    # 保证进入 hash 与 diff 的都是"有意义的文本"。
+    return strip_noise(normalize_text(text))
 
 
 def compute_hash(text: str) -> str:

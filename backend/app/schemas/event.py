@@ -4,12 +4,12 @@
 所以这里和 CompetitorOut 一样，把展示字段都用 computed_field 预制好，
 前端不再重复拼装。
 """
-import re
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 from pydantic.alias_generators import to_camel
 
+from app.core.display import clean_host, icon_text, icon_tone
 from app.core.event_types import (
     EVENT_TYPE_CATEGORY,
     EVENT_TYPE_LABELS,
@@ -17,30 +17,7 @@ from app.core.event_types import (
     PRIORITY_LABELS,
     EventType,
 )
-from app.core.timeutil import date_parts, humanize_ago
-
-_SCHEME_RE = re.compile(r"^https?://", re.I)
-_WWW_RE = re.compile(r"^www\.", re.I)
-
-# 首字母头像的固定配色（按名称哈希取用，保证同一竞品颜色稳定）
-_ICON_TONES = (
-    ("#e6f7f0", "#10a37f"),
-    ("#e8f0fe", "#4285f4"),
-    ("#f5e8df", "#c96442"),
-    ("#e6faff", "#13c2c2"),
-    ("#f0e9ff", "#6b32d9"),
-    ("#fff3e6", "#fa8c16"),
-)
-
-
-def _clean_host(url: str | None) -> str:
-    host = _SCHEME_RE.sub("", url or "").split("/")[0].strip()
-    return _WWW_RE.sub("", host)
-
-
-def _icon_tone(key: str) -> tuple[str, str]:
-    total = sum(ord(ch) for ch in (key or "?"))
-    return _ICON_TONES[total % len(_ICON_TONES)]
+from app.core.timeutil import date_parts, format_time, humanize_ago
 
 
 class EventRecordOut(BaseModel):
@@ -56,6 +33,8 @@ class EventRecordOut(BaseModel):
     event_type: EventType
     title: str
     summary: str
+    # AI 对该变化的推断/影响判断（与 summary 事实分离，仅代表模型观点）
+    ai_analysis: str | None = None
     keywords: list[str] = Field(default_factory=list)
     confidence: float = 0.0
     priority_level: str = "mid"
@@ -109,7 +88,7 @@ class EventRecordOut(BaseModel):
     @computed_field
     @property
     def domain(self) -> str:
-        return _clean_host(self.competitor_domain)
+        return clean_host(self.competitor_domain)
 
     @computed_field
     @property
@@ -120,17 +99,17 @@ class EventRecordOut(BaseModel):
     @computed_field
     @property
     def icon_text(self) -> str:
-        return (self.competitor_name or "?").strip()[:1].upper() or "?"
+        return icon_text(self.competitor_name)
 
     @computed_field
     @property
     def icon_bg(self) -> str:
-        return _icon_tone(self.competitor_name)[0]
+        return icon_tone(self.competitor_name)[0]
 
     @computed_field
     @property
     def icon_color(self) -> str:
-        return _icon_tone(self.competitor_name)[1]
+        return icon_tone(self.competitor_name)[1]
 
     @computed_field
     @property
@@ -185,10 +164,53 @@ class EventSummaryOut(BaseModel):
     content: int = 0
     negative: int = 0
     other: int = 0
+    # 优先级分面计数（不被优先级自身筛选清零）
+    high: int = 0
+    mid: int = 0
+    low: int = 0
 
 
 class EventListOut(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     summary: EventSummaryOut = Field(default_factory=EventSummaryOut)
+    # 命中「全部筛选条件（含分类）」的记录总数，用于分页
+    total: int = 0
     records: list[EventRecordOut] = Field(default_factory=list)
+
+
+class SnapshotOut(BaseModel):
+    """一条历史快照（情报详情抽屉「查看历史快照」用）。"""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    id: int
+    crawled_at: datetime
+    # 是否留了可查看的原始 HTML
+    available: bool = False
+    # 这次抓取是否检测到变化
+    change_detected: bool = False
+    # 是否为该事件自身对应的那次抓取
+    is_current: bool = False
+
+    @computed_field
+    @property
+    def crawled_at_label(self) -> str:
+        return format_time(self.crawled_at, "%Y-%m-%d %H:%M")
+
+
+class DailyInsightOut(BaseModel):
+    """工作台「AI 今日洞察」：统计数字来自数据库，summary/highlights 来自 LLM（或规则兜底）。"""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    days: int = 1
+    period_text: str = "过去 24 小时"
+    event_count: int = 0
+    high_count: int = 0
+    competitor_count: int = 0
+    summary: str = ""
+    highlights: list[str] = Field(default_factory=list)
+    # 是否来自真实模型（false = 规则 Mock）
+    from_llm: bool = False
+    generated_at: datetime = Field(default_factory=lambda: datetime.now())
