@@ -39,7 +39,7 @@ watch(
     <!-- logo -->
     <div class="logo" @click="$router.push({ name: 'Landing' })">
       <Radar size="1.5em" />
-      <div>AI 竞品雷达</div>
+      <div>竞品雷达</div>
     </div>
 
     <!-- 菜单 -->
@@ -89,14 +89,14 @@ watch(
   margin-bottom: 4vh;
   cursor: pointer;
   transition: transform 0.2s ease, color 0.2s ease;
-  color: var(--app-color-blue);
+  color: var(--app-color-blue-dark-3);
 }
 .logo:hover{
-  color: var(--app-color-blue-light-2);
+  color: var(--app-color-blue);
   transform: scale(1.1);
 }
 .logo:active{
-  color: var(--app-color-blue-light-1);
+  color: var(--app-color-blue);
   transform: scale(1.05);
 }
 

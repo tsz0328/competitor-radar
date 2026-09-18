@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import { ElMessage, ElMessageBox, ElNotification } from "element-plus";
 import { useCompetitorStore } from "@/stores/competitor";
 import type { CompetitorItem, CrawlResult } from "@/types/competitor";
@@ -22,15 +22,45 @@ const statusFilter = ref("");
 const categoryFilter = ref("");
 const viewMode = ref<"list" | "grid">("list");
 const dialogVisible = ref(false);
+
+// 操作列自适应：按内容（4 个控件）实际宽度动态设置列宽，避免写死或过宽
+const tableRef = ref();
+const actionColWidth = ref<number>();
+
+function fitActionColumn() {
+  const tableEl = tableRef.value?.$el as HTMLElement | undefined;
+  const sample = tableEl?.querySelector(".actions") as HTMLElement | null;
+  if (!sample) return;
+  // 克隆一份按内容自然宽度测量，避免受当前列宽约束影响
+  const clone = sample.cloneNode(true) as HTMLElement;
+  Object.assign(clone.style, {
+    position: "absolute",
+    visibility: "hidden",
+    left: "-9999px",
+    width: "max-content",
+    whiteSpace: "nowrap",
+  });
+  document.body.appendChild(clone);
+  const w = clone.offsetWidth;
+  document.body.removeChild(clone);
+  // 列宽 = 内容宽 + 单元格左右内边距 + 少量缓冲
+  if (w > 0) actionColWidth.value = Math.ceil(w) + 28;
+}
+
 const editingCompetitor = ref<CompetitorItem | null>(null);
 // 正在抓取的竞品 id：用于按钮 loading，并阻止并发抓取
 const crawlingId = ref<number | null>(null);
 const page = ref(1);
 const pageSize = ref(10);
 
-onMounted(() => {
-  store.loadCompetitors();
+const onResize = () => fitActionColumn();
+onMounted(async () => {
+  await store.loadCompetitors();
+  fitActionColumn();
 });
+
+window.addEventListener("resize", onResize);
+onBeforeUnmount(() => window.removeEventListener("resize", onResize));
 
 const statusOptions = [
   { label: "全部状态", value: "" },
@@ -64,10 +94,25 @@ const filteredList = computed(() => {
 
 const total = computed(() => filteredList.value.length);
 
+// 空状态：完全没竞品 / 筛选后无结果，给不同的引导文案
+const isEmpty = computed(
+  () => !store.loading && store.competitors.length === 0,
+);
+const isFilterEmpty = computed(
+  () => !store.loading && store.competitors.length > 0 && total.value === 0,
+);
+
 const pagedList = computed(() => {
   const start = (page.value - 1) * pageSize.value;
   return filteredList.value.slice(start, start + pageSize.value);
 });
+
+// 数据变化、视图切换、窗口缩放后重新测量（gap 用 vw，宽度随视口变化）
+// 注意：必须在 pagedList 声明之后注册，否则 watch getter 在 TDZ 中访问 pagedList 会报错
+watch(
+  [() => pagedList.value.length, viewMode],
+  () => nextTick(fitActionColumn),
+);
 
 function categoryClass(item: CompetitorItem) {
   return `tag-${item.categoryType}`;
@@ -140,15 +185,22 @@ function reportCrawlResult(item: CompetitorItem, result: CrawlResult) {
     });
   }
   if (changed.length) {
+    const parts = [`变化页面：${changed.map((r) => r.sourceName).join("、")}`];
+    // 首次抓取（建立基准）的页面不会产生变化，但也应告知，避免"没有信息"的错觉
+    if (firstTime.length) {
+      parts.push(`新建立基准：${firstTime.map((r) => r.sourceName).join("、")}`);
+    }
     ElNotification({
-      title: `${item.name}：发现 ${changed.length} 处变化`,
+      title: `${item.name}：抓取 ${result.total} 个页面，发现 ${changed.length} 处变化`,
       type: "success",
       duration: 6000,
-      message: `变化页面：${changed.map((r) => r.sourceName).join("、")}`,
+      message: parts.join("；"),
     });
   }
   if (!failed.length && !changed.length) {
-    const baseline = firstTime.length ? `，其中 ${firstTime.length} 个已建立基准` : "";
+    const baseline = firstTime.length
+      ? `，其中 ${firstTime.length} 个已建立基准（${firstTime.map((r) => r.sourceName).join("、")}）`
+      : "";
     ElMessage.success(`已抓取 ${result.total} 个页面，暂无变化${baseline}`);
   }
 }
@@ -161,6 +213,27 @@ async function handleCrawl(item: CompetitorItem) {
     reportCrawlResult(item, result);
   } catch {
     // 失败提示已由 request.ts 拦截器统一弹出，这里只需复位状态
+  } finally {
+    crawlingId.value = null;
+  }
+}
+
+/** 统计该竞品下被「连续失败自动停用」的监控源数量 */
+function autoDisabledCount(item: CompetitorItem): number {
+  return (item.sources ?? []).filter((s) => s.autoDisabled).length;
+}
+
+/** 「重新启用」：复活被自动停用的监控源，并立即抓取一次验证是否恢复 */
+async function handleRevive(item: CompetitorItem) {
+  if (crawlingId.value) return; // 与抓取共用并发锁，避免重复请求目标站点
+  crawlingId.value = item.id;
+  try {
+    await store.reviveSources(item.id);
+    const result = await store.runCrawl(item.id);
+    reportCrawlResult(item, result);
+  } catch (err) {
+    // HTTP 错误已由 request.ts 拦截器统一弹出；这里兜底打印，避免代码类异常被静默吞掉
+    console.error("重新启用失败", err);
   } finally {
     crawlingId.value = null;
   }
@@ -233,13 +306,24 @@ async function handleCrawl(item: CompetitorItem) {
       </div>
     </div>
 
+    <!-- 空状态 -->
+    <div v-if="isEmpty" class="empty-state">
+      <el-empty description="还没有监控任何竞品，添加后会自动开始抓取官网动态">
+        <el-button type="primary" :icon="Plus" @click="openCreate">新增竞品</el-button>
+      </el-empty>
+    </div>
+    <div v-else-if="isFilterEmpty" class="empty-state">
+      <el-empty description="没有符合条件的竞品，试试调整筛选或搜索关键词" />
+    </div>
+    <template v-else>
+
     <!-- 列表视图 -->
     <div
       v-if="viewMode === 'list'"
       v-loading="store.loading"
       class="table-wrap"
     >
-      <el-table :data="pagedList" height="100%" style="width: 100%">
+      <el-table ref="tableRef" :data="pagedList" height="100%" style="width: 100%">
         <el-table-column label="竞品信息" min-width="260">
           <template #default="{ row }">
             <div class="competitor-info">
@@ -282,11 +366,17 @@ async function handleCrawl(item: CompetitorItem) {
           </template>
         </el-table-column>
 
-        <el-table-column label="最近抓取" min-width="150">
+        <el-table-column label="抓取节奏" min-width="170">
           <template #default="{ row }">
             <div class="last-fetch">
-              <div class="last-fetch-ago">{{ row.lastFetchAgo }}</div>
-              <div class="last-fetch-time">{{ row.lastFetchTime }}</div>
+              <el-tooltip
+                :content="`上次抓取：${row.lastFetchTime}`"
+                placement="top"
+                :show-after="300"
+              >
+                <div class="last-fetch-ago">最近 {{ row.lastFetchAgo }}</div>
+              </el-tooltip>
+              <div class="last-fetch-time">下次 {{ row.nextCrawlAt }}</div>
             </div>
           </template>
         </el-table-column>
@@ -319,17 +409,29 @@ async function handleCrawl(item: CompetitorItem) {
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" min-width="200" fixed="right">
+        <el-table-column label="操作" :width="actionColWidth" fixed="right">
           <template #default="{ row }: { row: CompetitorItem }">
             <div class="actions">
-              <el-tooltip content="立即抓取" placement="top" :show-after="300">
+              <el-tooltip
+                :content="
+                  autoDisabledCount(row) > 0
+                    ? '重新启用被自动停用的页面'
+                    : '立即抓取'
+                "
+                placement="top"
+                :show-after="300"
+              >
                 <el-button
                   link
-                  type="primary"
+                  :type="autoDisabledCount(row) > 0 ? 'warning' : 'primary'"
                   :icon="Refresh"
                   :loading="crawlingId === row.id"
                   :disabled="crawlingId !== null && crawlingId !== row.id"
-                  @click="handleCrawl(row)"
+                  @click="
+                    autoDisabledCount(row) > 0
+                      ? handleRevive(row)
+                      : handleCrawl(row)
+                  "
                 />
               </el-tooltip>
               <el-tooltip content="编辑" placement="top" :show-after="300">
@@ -396,11 +498,18 @@ async function handleCrawl(item: CompetitorItem) {
               <span>{{ item.lastFetchAgo }}</span>
             </div>
             <div class="card-row">
+              <span class="label">下次抓取</span>
+              <span>{{ item.nextCrawlAt }}</span>
+            </div>
+            <div class="card-row">
               <span class="label">状态</span>
-              <el-tag :class="statusClass(item)" size="small" effect="light">
-                <span class="status-dot" :class="item.statusType" />
-                {{ item.statusLabel }}
-              </el-tag>
+              <div class="card-status">
+                <el-tag :class="statusClass(item)" size="small" effect="light">
+                  <span class="status-dot" :class="item.statusType" />
+                  {{ item.statusLabel }}
+                </el-tag>
+                <span class="card-status-desc">{{ item.statusDesc }}</span>
+              </div>
             </div>
             <div class="card-row">
               <span class="label">最近变化</span>
@@ -411,14 +520,26 @@ async function handleCrawl(item: CompetitorItem) {
               >
             </div>
             <div class="card-actions">
-              <el-tooltip content="立即抓取" placement="top" :show-after="300">
+              <el-tooltip
+                :content="
+                  autoDisabledCount(item) > 0
+                    ? '重新启用被自动停用的页面'
+                    : '立即抓取'
+                "
+                placement="top"
+                :show-after="300"
+              >
                 <el-button
                   link
-                  type="primary"
+                  :type="autoDisabledCount(item) > 0 ? 'warning' : 'primary'"
                   :icon="Refresh"
                   :loading="crawlingId === item.id"
                   :disabled="crawlingId !== null && crawlingId !== item.id"
-                  @click="handleCrawl(item)"
+                  @click="
+                    autoDisabledCount(item) > 0
+                      ? handleRevive(item)
+                      : handleCrawl(item)
+                  "
                 />
               </el-tooltip>
               <el-tooltip content="编辑" placement="top" :show-after="300">
@@ -462,6 +583,7 @@ async function handleCrawl(item: CompetitorItem) {
         background
       />
     </div>
+    </template>
 
     <!-- 新增 / 编辑竞品弹窗 -->
     <CompetitorFormDialog
@@ -505,6 +627,15 @@ async function handleCrawl(item: CompetitorItem) {
 }
 .view-switch .el-button {
   padding: 0.6vh 0.8vw;
+}
+
+/* 空状态 */
+.empty-state {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* 列表容器 */
@@ -551,7 +682,7 @@ async function handleCrawl(item: CompetitorItem) {
   color: var(--app-text-color-placeholder);
 }
 
-/* 分类标签颜色 */
+/* 分类标签颜色（与 categoryType 的四种取值一一对应） */
 .tag-saas {
   background: var(--app-color-blue-light-4);
   color: var(--app-color-blue-dark-2);
@@ -560,13 +691,13 @@ async function handleCrawl(item: CompetitorItem) {
   background: var(--app-color-purple-light-4);
   color: var(--app-color-purple-dark-2);
 }
-.tag-brand {
+.tag-app {
   background: var(--app-color-orange-light-4);
   color: var(--app-color-orange-dark-2);
 }
-.tag-ecommerce {
-  background: var(--app-color-red-light-4);
-  color: var(--app-color-red-dark-2);
+.tag-tool {
+  background: var(--app-color-green-light-4);
+  color: var(--app-color-green-dark-2);
 }
 
 /* 监控页面 */
@@ -630,6 +761,18 @@ async function handleCrawl(item: CompetitorItem) {
 .status-dot.info {
   background: var(--app-text-color-placeholder);
 }
+
+/* 网格卡片状态：标签 + 描述上下排列，右对齐贴合卡片布局 */
+.card-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2vh;
+}
+.card-status-desc {
+  font-size: 0.8vmax;
+  color: var(--app-text-color-placeholder);
+}
 .status-success {
   background: var(--app-color-green-light-5);
   color: var(--app-color-green-dark-2);
@@ -657,6 +800,8 @@ async function handleCrawl(item: CompetitorItem) {
 .actions {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
   gap: 0.6vw;
 }
 .actions .el-button {

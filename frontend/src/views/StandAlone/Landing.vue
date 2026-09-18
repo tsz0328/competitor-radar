@@ -47,7 +47,7 @@ onUnmounted(() => observer?.disconnect());
       <!-- logo -->
       <div class="landing-header-logo">
         <Radar size="1.5em" color="var(--app-color-blue)" />
-        <span class="landing-header-logo-text">AI 竞品雷达</span>
+        <span class="landing-header-logo-text">竞品雷达</span>
       </div>
 
       <!-- 导航链接 -->
@@ -76,17 +76,18 @@ onUnmounted(() => observer?.disconnect());
           <el-icon>
             <Star />
           </el-icon>
-          <span>用AI重新定义市场情报分析</span>
+          <span>用 AI 盯住竞品的每一次公开变化</span>
         </div>
         <!-- 标题 -->
         <div class="hero-title">
-          <span class="hero-highlight">AI</span> 竞品情报雷达
+          <span class="hero-highlight">竞品</span>雷达
         </div>
         <!-- 副标题 -->
-        <div class="hero-subtitle">让市场变化，尽在掌握</div>
+        <div class="hero-subtitle">竞品官网一变，立刻知道</div>
         <!-- 产品描述 -->
         <div class="hero-description">
-          自动监控竞品动态，AI智能分析市场变化，为你提供有价值的市场情报与趋势洞察
+          持续监控竞品官网、定价页、更新日志与博客等公开页面，用快照对比找出「变了什么」，
+          再由 AI 翻译成「这件事意味着什么」
         </div>
         <!-- 按钮 -->
         <div class="hero-actions">
@@ -125,7 +126,7 @@ onUnmounted(() => observer?.disconnect());
         <!-- 头部 -->
         <header class="preview-header">
           <div class="preview-header-logo">
-            <Radar size="1.5em" color="var(--app-color-blue)" /><span class="preview-header-logo-text">AI 竞品雷达</span>
+            <Radar size="1.5em" color="var(--app-color-blue)" /><span class="preview-header-logo-text">竞品雷达</span>
           </div>
           <div class="preview-header-right">
             <el-icon>
@@ -387,7 +388,7 @@ onUnmounted(() => observer?.disconnect());
       <div class="feature-header">
         <div class="feature-title">核心功能</div>
         <div class="feature-subtitle">
-          AI 驱动的全流程竞品情报分析，助你抢占市场先机
+          盯住官网与公开数据源的每一次变化，把差异变成可行动的情报
         </div>
       </div>
       <!-- 功能特性卡片列表 -->
@@ -412,8 +413,8 @@ onUnmounted(() => observer?.disconnect());
             <div class="feature-card-title">自动化监控</div>
           </div>
           <div class="feature-card-desc">
-            基于 Playwright
-            智能抓取技术，7×24小时持续监控竞品官网、更新日志、社交媒体等多渠道信息，第一时间发现变化。
+            7×24 小时持续监控竞品官网首页、定价页、更新日志、博客与状态页等公开页面，
+            自动生成快照差异，第一时间发现变化。
           </div>
         </div>
 
@@ -437,7 +438,8 @@ onUnmounted(() => observer?.disconnect());
             <div class="feature-card-title">AI 智能分析</div>
           </div>
           <div class="feature-card-desc">
-            通过大语言模型深度分析竞品动态，自动提取关键信息，判断变化类型，生成专业的情报摘要与市场洞察。
+            用大语言模型分析页面差异，自动判断变化类型（功能 / 价格 / 内容 / 舆论），
+            生成一眼就能读懂的情报摘要与影响判断。
           </div>
         </div>
 
@@ -548,8 +550,8 @@ onUnmounted(() => observer?.disconnect());
     <div class="landing-footer-container">
       <!-- 品牌信息 -->
       <div class="landing-footer-brand">
-        <span class="landing-footer-brand-title">AI 竞品雷达</span>
-        <span class="landing-footer-brand-subtitle">让AI成为你的市场情报助手</span>
+        <span class="landing-footer-brand-title">竞品雷达</span>
+        <span class="landing-footer-brand-subtitle">让 AI 盯住竞品的每一次官网变化</span>
       </div>
 
       <!-- 导航链接 -->
@@ -574,13 +576,13 @@ onUnmounted(() => observer?.disconnect());
           <span class="landing-footer-nav-item-title">法律</span>
           <a href="#">隐私政策</a>
           <a href="#">服务条款</a>
-          <a href="https://github.com/tsz0328/ai-competitor-radar.git" target="_blank">GitHub</a>
+          <a href="https://github.com/tsz0328/competitor-radar.git" target="_blank">GitHub</a>
         </div>
       </nav>
 
       <!-- 版权信息 -->
       <div class="landing-footer-copyright">
-        <span>© 2026 AI Competitor Radar. All rights reserved.</span>
+        <span>© 2026 竞品雷达. All rights reserved.</span>
       </div>
     </div>
   </footer>
@@ -749,8 +751,12 @@ onUnmounted(() => observer?.disconnect());
   font-size: 1.5vmax;
 }
 
-/* 开始使用按钮 */
+/* 开始使用 / 查看产品演示 按钮组 */
 .hero-actions {
+  display: flex;
+  align-items: center;
+  /* 全局 .el-button + .el-button 的 margin 已被置 0，这里显式给间距 */
+  gap: 3vw;
   padding: 3vh 0;
 }
 

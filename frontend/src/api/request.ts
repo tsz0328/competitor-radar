@@ -11,6 +11,15 @@ const request: AxiosInstance = axios.create({
   timeout: 10000,
 });
 
+/**
+ * 需要等待大模型 / 浏览器渲染的"重活"接口专用超时（3 分钟）。
+ *
+ * 全局 10s 只适合普通增删改查；像"立即抓取"（起浏览器 + 逐页渲染 + LLM 分析）、
+ * "生成周报"这类请求会轻松超过 10s，若不单独放宽就会误报
+ * "timeout of 10000ms exceeded"（实为前端主动断开，后端其实还在跑）。
+ */
+export const LONG_REQUEST_TIMEOUT = 180_000;
+
 // 请求拦截器：自动附加 token
 request.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {

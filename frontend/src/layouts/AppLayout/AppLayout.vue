@@ -31,7 +31,7 @@ import TopBar from '@/layouts/AppLayout/TopBar.vue'
   width: 15vw;
   flex-shrink: 0;
   height: 100%;
-  background: linear-gradient(135deg, var(--app-color-white), var(--app-color-purple));
+  background: linear-gradient(135deg, var(--app-color-white), var(--app-color-blue));
 }
 .container {
   flex: 1;
@@ -42,7 +42,7 @@ import TopBar from '@/layouts/AppLayout/TopBar.vue'
 .header {
   height: 8vh;
   flex-shrink: 0;
-  background: linear-gradient(135deg, var(--app-color-blue-light-1), var(--app-color-purple-light-1));
+  background: linear-gradient(135deg, var(--app-color-blue-light-1), var(--app-color-blue-light-3));
 }
 .main {
   flex: 1;

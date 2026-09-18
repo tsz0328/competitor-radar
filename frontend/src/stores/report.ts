@@ -10,10 +10,13 @@ export const useReportStore = defineStore("report", () => {
   // 报告列表
   const listLoading = ref(false);
   const reportList = ref<ReportListResult | null>(null);
+  let listSeq = 0;
   async function loadReportList() {
+    const seq = ++listSeq;
     listLoading.value = true;
     try {
       const list = await fetchReportList();
+      if (seq !== listSeq) return; // 已有更新的请求，丢弃本次
       // 首次加载时用接口数据初始化收藏表，本地已有的修改优先保留
       for (const r of list.reports) {
         if (!(r.id in favoriteMap.value)) {
@@ -22,17 +25,20 @@ export const useReportStore = defineStore("report", () => {
       }
       reportList.value = list;
     } finally {
-      listLoading.value = false;
+      if (seq === listSeq) listLoading.value = false;
     }
   }
 
   // 报告详情
   const detailLoading = ref(false);
   const reportDetail = ref<ReportDetail | null>(null);
+  let detailSeq = 0;
   async function loadReportDetail(id: number) {
+    const seq = ++detailSeq;
     detailLoading.value = true;
     try {
       const detail = await fetchReportDetail(id);
+      if (seq !== detailSeq) return; // 快速切换报告时，避免旧详情覆盖新详情
       // 详情每次都从接口重新拉取，需要用收藏表校正，否则本地收藏会被接口值覆盖
       if (id in favoriteMap.value) {
         detail.favorite = favoriteMap.value[id];
@@ -41,7 +47,7 @@ export const useReportStore = defineStore("report", () => {
       }
       reportDetail.value = detail;
     } finally {
-      detailLoading.value = false;
+      if (seq === detailSeq) detailLoading.value = false;
     }
   }
 

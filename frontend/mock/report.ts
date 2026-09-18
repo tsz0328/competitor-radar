@@ -78,6 +78,8 @@ const detail25: ReportDetail = {
   typeLabel: "周报",
   rangeStart: "2026-06-19",
   rangeEnd: "2026-06-25",
+  content:
+    "# 2026年第25周 竞品周报\n\n## 本周核心摘要\n\n本周共监控 12 个竞品，发现 28 个重要变化事件。AI 能力迭代仍是竞品竞争的主线，部分产品开始调整定价策略。\n\n## 本周重点变化\n\n- **Notion**：推出全新 AI 功能套件，显著提升内容处理效率。\n- **飞书**：调整企业版定价策略，通过基础版降价与高级版增值覆盖更多客户。\n\n## 建议关注\n\n建议重点跟进 AI 功能与定价变化对市场份额的后续影响。",
   competitors: 12,
   favorite: true,
   summary:
@@ -238,7 +240,7 @@ function makeDetail(item: ReportListItem): ReportDetail {
 
 export default [
   {
-    url: "/api/reports/list",
+    url: "/api/reports",
     method: "get",
     timeout: 300,
     response: () => ({
@@ -247,11 +249,11 @@ export default [
     }),
   },
   {
-    url: "/api/reports/detail",
+    url: "/api/reports/:id",
     method: "get",
     timeout: 300,
-    response: ({ query }: { query: Record<string, string> }) => {
-      const id = Number(query.id);
+    response: ({ params }: { params: Record<string, string> }) => {
+      const id = Number(params.id);
       const item = reportList.find((r) => r.id === id) ?? reportList[0];
       return {
         code: 0,

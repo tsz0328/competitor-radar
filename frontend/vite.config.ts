@@ -16,6 +16,20 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // 把稳定的大型依赖拆成独立 chunk，避免业务改动再次生成同一个 1.7MB 入口文件
+        manualChunks: {
+          "vue-vendor": ["vue", "vue-router", "pinia"],
+          "element-plus": ["element-plus", "@element-plus/icons-vue"],
+          echarts: ["echarts", "vue-echarts"],
+          axios: ["axios"],
+          markdown: ["marked", "dompurify"],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     // 注意：开了 mock 后，/api 会被 mock 拦截，不会再转发到 8000

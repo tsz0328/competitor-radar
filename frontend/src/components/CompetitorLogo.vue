@@ -2,11 +2,14 @@
 /**
  * 竞品图标：多级回退，保证永远不会出现"空白方块"。
  *
- * 优先用竞品自己域名的图标（一方资源，不依赖第三方服务），
- * 依次尝试后端给的地址 → favicon.ico → apple-touch-icon.png；
- * 全部失败则显示首字母头像（底色由名称哈希决定，稳定且可区分）。
+ * 优先用竞品自己域名的图标（一方资源，不依赖第三方服务）：
+ *   1) 后端给的地址 → favicon.ico → apple-touch-icon.png；
+ *   2) 全失败时兜底调用后端解析首页 <link rel="icon"> 拿真实图标
+ *      —— SPA 站点（如豆包）会把 /favicon.ico 返回成 HTML，真实图标在 CDN 上；
+ *   3) 仍拿不到才显示首字母头像（底色由名称哈希决定，稳定且可区分）。
  */
 import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { resolveFavicon } from "@/api/competitor";
 
 const props = withDefaults(
   defineProps<{
@@ -28,7 +31,8 @@ const host = computed(() =>
     .trim(),
 );
 
-const candidates = computed(() => {
+/** 本地可直接拼出的候选：后端给的地址 → favicon.ico → apple-touch-icon.png */
+const baseCandidates = computed(() => {
   const list: string[] = [];
   if (props.src) list.push(props.src);
   if (host.value) {
@@ -37,6 +41,14 @@ const candidates = computed(() => {
   }
   return Array.from(new Set(list));
 });
+
+// 本地候选全失败后，由后端解析出的"真实图标"（SPA 站点图标常挂在 CDN 上）
+const remoteSrc = ref("");
+const remoteTried = ref(false);
+
+const candidates = computed(() =>
+  remoteSrc.value ? [...baseCandidates.value, remoteSrc.value] : baseCandidates.value,
+);
 
 const index = ref(0);
 const exhausted = ref(false);
@@ -55,15 +67,30 @@ function clearTimer() {
   }
 }
 
-/** 换下一个候选；都试完了就标记为用尽（转为首字母头像） */
-function moveNext() {
+/** 换下一个候选；本地候选都试完了就去后端解析真实图标，最后才转首字母头像 */
+async function moveNext() {
   clearTimer();
   loaded.value = false;
   if (index.value < candidates.value.length - 1) {
     index.value += 1;
-  } else {
-    exhausted.value = true;
+    return;
   }
+
+  // 本地候选全失败：兜底问后端要真实图标（每个组件实例只问一次）
+  if (!remoteTried.value && host.value) {
+    remoteTried.value = true;
+    try {
+      const { logoUrl } = await resolveFavicon(host.value);
+      if (logoUrl && !candidates.value.includes(logoUrl)) {
+        remoteSrc.value = logoUrl;
+        index.value = candidates.value.length - 1; // 指向刚追加的远程候选
+        return; // currentSrc 变化会触发 watch，重新计时加载
+      }
+    } catch {
+      // 解析失败无所谓，继续走首字母头像
+    }
+  }
+  exhausted.value = true;
 }
 
 function onLoad() {
@@ -86,11 +113,13 @@ watch(
   { immediate: true },
 );
 
-// 目标竞品变了（例如编辑后刷新），重置回第一个候选
-watch(candidates, () => {
+// 目标竞品变了（例如编辑后刷新），重置回第一个候选（含清掉远程解析结果）
+watch(baseCandidates, () => {
   index.value = 0;
   exhausted.value = false;
   loaded.value = false;
+  remoteSrc.value = "";
+  remoteTried.value = false;
 });
 
 onBeforeUnmount(clearTimer);
@@ -127,11 +156,18 @@ const wrapperStyle = computed(() => ({
 <template>
   <div class="competitor-logo" :style="wrapperStyle">
     <span v-if="!loaded" class="logo-initial">{{ initial }}</span>
+    <!--
+      仅用于"指称"竞品身份的内部展示，不构成任何关联/背书暗示。
+      referrerpolicy=no-referrer：避免把本页面路径泄露给竞品站，
+      也降低因对方防盗链（Referer 校验）而加载失败的概率。
+      图片仅为缓存给内部使用，不做对外分发。
+    -->
     <img
       v-if="currentSrc"
       :src="currentSrc"
       alt=""
       class="logo-img"
+      referrerpolicy="no-referrer"
       @load="onLoad"
       @error="moveNext"
     />

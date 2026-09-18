@@ -84,7 +84,7 @@ const onOAuth = (provider: "qq" | "wechat" | "email") => {
 
       <div class="form-brand">
         <Radar size="1.5em" color="var(--app-color-blue)" />
-        <span class="form-brand-name">AI 竞品雷达</span>
+        <span class="form-brand-name">竞品雷达</span>
       </div>
 
       <div class="form-title">欢迎使用</div>

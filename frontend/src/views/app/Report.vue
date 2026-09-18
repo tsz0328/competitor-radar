@@ -2,7 +2,10 @@
 import { computed, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { useReportStore } from "@/stores/report";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import type { ReportListItem } from "@/types/report";
+import { generateReport } from "@/api/report";
 import DonutChart from "@/components/Charts/DonutChart.vue";
 import RankBarChart from "@/components/Charts/RankBarChart.vue";
 import CompareLineChart from "@/components/Charts/CompareLineChart.vue";
@@ -19,6 +22,7 @@ import {
   PriceTag,
   Warning,
   Filter,
+  Plus,
 } from "@element-plus/icons-vue";
 
 const reportStore = useReportStore();
@@ -26,13 +30,12 @@ const reportStore = useReportStore();
 // 左侧列表状态
 const sideTab = ref<"list" | "template">("list");
 const keyword = ref("");
-const competitorFilter = ref("all");
 const typeFilter = ref<"all" | "weekly" | "monthly">("all");
 const onlyFavorite = ref(false);
 
 // 右侧详情状态
 const activeId = ref<number | null>(null);
-const activeTab = ref<"content" | "events" | "competitors" | "ai">("content");
+const activeTab = ref<"content" | "full" | "events" | "competitors" | "ai">("content");
 
 onMounted(async () => {
   await reportStore.loadReportList();
@@ -67,6 +70,13 @@ const groupedReports = computed(() => {
 
 const detail = computed(() => reportStore.reportDetail);
 
+// 后端 content 是 AI 生成的 Markdown，渲染进 v-html 前先用 DOMPurify 清一遍，避免注入脚本
+const renderedContent = computed(() => {
+  const raw = detail.value?.content?.trim();
+  if (!raw) return "";
+  return DOMPurify.sanitize(marked.parse(raw, { gfm: true, breaks: true }) as string);
+});
+
 // 核心摘要统计卡片：展示配置（稳定，留前端）+ 数值来自接口
 const STAT_DEFS = [
   { key: "events", icon: Document, cls: "stat-purple" },
@@ -89,6 +99,34 @@ const statCards = computed(() => {
     };
   });
 });
+
+// 竞争动态：本期各竞品的变化条数，用排行榜最大值做条形比例
+const maxCompetitorChanges = computed(() =>
+  Math.max(1, ...(detail.value?.relatedCompetitors ?? []).map((c) => c.changes)),
+);
+function motionWidth(changes: number): string {
+  return `${Math.round((changes / maxCompetitorChanges.value) * 100)}%`;
+}
+
+// 手动生成本周周报（定时生成留待里程碑 10）
+const generating = ref(false);
+
+async function onGenerate() {
+  if (generating.value) return;
+  generating.value = true;
+  try {
+    const created = await generateReport();
+    ElMessage.success("周报已生成");
+    await reportStore.loadReportList();
+    activeId.value = created.id;
+    activeTab.value = "content";
+    reportStore.loadReportDetail(created.id);
+  } catch {
+    // 失败提示由 request.ts 拦截器统一弹出
+  } finally {
+    generating.value = false;
+  }
+}
 
 function onToggleFavorite(id: number) {
   const next = reportStore.toggleFavorite(id);
@@ -127,9 +165,6 @@ async function onShare() {
           clearable
         />
         <div class="side-filter-row">
-          <el-select v-model="competitorFilter" class="side-select">
-            <el-option label="全部竞品" value="all" />
-          </el-select>
           <el-popover placement="bottom-start" trigger="click" width="220">
             <template #reference>
               <el-button :icon="Filter">筛选</el-button>
@@ -144,6 +179,14 @@ async function onShare() {
               <el-checkbox v-model="onlyFavorite">仅看收藏</el-checkbox>
             </div>
           </el-popover>
+          <el-button
+            type="primary"
+            :icon="Plus"
+            :loading="generating"
+            @click="onGenerate"
+          >
+            生成
+          </el-button>
         </div>
 
         <div class="report-list" v-loading="reportStore.listLoading">
@@ -226,6 +269,7 @@ async function onShare() {
         <div class="report-body card">
           <el-tabs v-model="activeTab" class="report-tabs">
             <el-tab-pane label="报告内容" name="content" />
+            <el-tab-pane label="正文" name="full" />
             <el-tab-pane
               :label="`相关事件 (${detail.relatedEvents.length})`"
               name="events"
@@ -290,7 +334,31 @@ async function onShare() {
               </section>
 
               <section class="section">
-                <h3 class="section-title">三、按类别统计</h3>
+                <h3 class="section-title">三、竞争动态</h3>
+                <div v-if="detail.relatedCompetitors.length" class="motion-list">
+                  <div
+                    v-for="c in detail.relatedCompetitors"
+                    :key="c.name"
+                    class="motion-item"
+                  >
+                    <div
+                      class="motion-icon"
+                      :style="{ backgroundColor: c.iconBg, color: c.iconColor }"
+                    >
+                      {{ c.iconText }}
+                    </div>
+                    <div class="motion-name">{{ c.name }}</div>
+                    <div class="motion-bar">
+                      <i :style="{ width: motionWidth(c.changes) }" />
+                    </div>
+                    <div class="motion-changes">{{ c.changes }} 条</div>
+                  </div>
+                </div>
+                <p v-else class="motion-empty">本期没有检测到竞品变化。</p>
+              </section>
+
+              <section class="section">
+                <h3 class="section-title">四、按类别统计</h3>
                 <div class="chart-grid">
                   <div class="chart-card">
                     <div class="chart-title">事件类型分布</div>
@@ -312,6 +380,16 @@ async function onShare() {
                   </div>
                 </div>
               </section>
+            </div>
+
+            <!-- AI 周报正文（Markdown） -->
+            <div v-show="activeTab === 'full'" class="full-tab">
+              <article
+                v-if="renderedContent"
+                class="markdown-body"
+                v-html="renderedContent"
+              ></article>
+              <el-empty v-else description="本期报告暂无 AI 正文" :image-size="80" />
             </div>
 
             <!-- 相关事件 -->
@@ -809,6 +887,76 @@ async function onShare() {
   padding-top: 1vh;
 }
 
+/* 竞争动态：每个竞品本期变化条数 */
+.motion-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1vh;
+}
+
+.motion-item {
+  display: flex;
+  align-items: center;
+  gap: 1vw;
+  font-size: 1vmax;
+}
+
+.motion-icon {
+  width: 2.2vmax;
+  height: 2.2vmax;
+  min-width: 26px;
+  min-height: 26px;
+  border-radius: 0.5vmax;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1vmax;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.motion-name {
+  width: 10vw;
+  min-width: 90px;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.motion-bar {
+  flex: 1;
+  min-width: 0;
+  height: 10px;
+  border-radius: 100vmax;
+  background: var(--app-color-blue-light-5);
+  overflow: hidden;
+}
+.motion-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 100vmax;
+  background: linear-gradient(
+    90deg,
+    var(--app-color-blue-light-2),
+    var(--app-color-purple)
+  );
+}
+
+.motion-changes {
+  width: 4vw;
+  min-width: 48px;
+  text-align: right;
+  flex-shrink: 0;
+  color: var(--app-color-gray);
+}
+
+.motion-empty {
+  margin: 0;
+  font-size: 1vmax;
+  color: var(--app-color-gray);
+}
+
 /* 图表 */
 .chart-grid {
   display: grid;
@@ -826,6 +974,100 @@ async function onShare() {
   font-size: 1vmax;
   font-weight: bold;
   margin-bottom: 0.8vh;
+}
+
+/* AI 周报正文 */
+.full-tab {
+  padding: 0.5vw 0.5vw 2vh;
+}
+
+.markdown-body {
+  max-width: 980px;
+  font-size: 1vmax;
+  line-height: 1.85;
+  color: var(--app-text-color-regular);
+}
+
+.markdown-body :deep(h1),
+.markdown-body :deep(h2),
+.markdown-body :deep(h3) {
+  margin: 2vh 0 1vh;
+  line-height: 1.35;
+}
+
+.markdown-body :deep(h1) {
+  font-size: 1.45vmax;
+}
+
+.markdown-body :deep(h2) {
+  font-size: 1.25vmax;
+  padding-bottom: 0.5vh;
+  border-bottom: 1px solid var(--app-color-blue-light-4);
+}
+
+.markdown-body :deep(h3) {
+  font-size: 1.1vmax;
+}
+
+.markdown-body :deep(p),
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  margin: 0.8vh 0 1.2vh;
+}
+
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  padding-left: 1.8vw;
+}
+
+.markdown-body :deep(li) {
+  margin: 0.35vh 0;
+}
+
+.markdown-body :deep(blockquote) {
+  margin: 1.2vh 0;
+  padding: 0.8vh 1vw;
+  border-left: 3px solid var(--app-color-blue-light-3);
+  background: var(--app-color-blue-light-5);
+  color: var(--app-color-gray);
+}
+
+.markdown-body :deep(code) {
+  padding: 0.1em 0.35em;
+  border-radius: 0.35em;
+  background: #f5f5f5;
+  font-family: Consolas, Menlo, "Courier New", monospace;
+  font-size: 0.9em;
+}
+
+.markdown-body :deep(pre) {
+  padding: 1vh 1vw;
+  overflow: auto;
+  background: #f7f7f7;
+  border-radius: 0.6vmax;
+}
+
+.markdown-body :deep(pre code) {
+  padding: 0;
+  background: transparent;
+}
+
+.markdown-body :deep(a) {
+  color: var(--app-color-primary);
+  word-break: break-all;
+}
+
+.markdown-body :deep(table) {
+  width: 100%;
+  margin: 1.5vh 0;
+  border-collapse: collapse;
+}
+
+.markdown-body :deep(th),
+.markdown-body :deep(td) {
+  padding: 0.7vh 0.8vw;
+  border: 1px solid var(--app-color-blue-light-4);
+  text-align: left;
 }
 
 /* 相关事件 */

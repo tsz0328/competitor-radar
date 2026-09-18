@@ -133,7 +133,7 @@ html.dark {
 
 /* 按钮字号、圆角、内边距均由各页面自行定义 */
 .el-button + .el-button {
-  margin-left: 1.2vw;
+  margin-left: 0;
 }
 /* 全局统一 checkbox 尺寸（方块 + 文字），登录页等共用 */
 .el-checkbox__inner {
@@ -149,5 +149,62 @@ html.dark {
 .el-checkbox__label {
   font-size: 1vmax;
   padding-left: 0.5em;
+}
+
+/* ============ 情报事件：类型标签 / 优先级 / 关键词 ============
+   事件流页、Dashboard、事件详情抽屉三处共用，放全局避免各页各写一套配色
+   （此前 Dashboard 与事件页的同名标签配色不一致）。 */
+.event-tag {
+  font-size: 1vmax;
+  padding: 0 0.5vw;
+  border-radius: 0.4vmax;
+  flex-shrink: 0;
+}
+.tag-new {
+  background-color: #e6f9f0;
+  color: #22c55e;
+}
+.tag-price {
+  background-color: #fff3e6;
+  color: #fa8c16;
+}
+.tag-update {
+  background-color: #e6f4ff;
+  color: #1890ff;
+}
+.tag-negative {
+  background-color: #fff1f0;
+  color: #ff4d4f;
+}
+.tag-other {
+  background-color: #f0f0f0;
+  color: #909399;
+}
+
+.priority-tag {
+  font-size: 1vmax;
+  padding: 0 0.5vw;
+  border-radius: 0.4vmax;
+  flex-shrink: 0;
+}
+.priority-tag.high {
+  background: #fff1f0;
+  color: #ff4d4f;
+}
+.priority-tag.mid {
+  background: #fff3e6;
+  color: #fa8c16;
+}
+.priority-tag.low {
+  background: #f0f0f0;
+  color: #909399;
+}
+
+.keyword {
+  font-size: 1vmax;
+  padding: 0 0.5vw;
+  border-radius: 0.4vmax;
+  background: #f4f4f5;
+  color: var(--app-color-gray);
 }
 

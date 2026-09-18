@@ -2,17 +2,17 @@
 import { createRouter, createWebHistory } from "vue-router";
 
 // 引入路由组件
-import Landing from "@/views/StandAlone/Landing.vue";
-import Login from "@/views/StandAlone/Login/Login.vue";
+const Landing = () => import("@/views/StandAlone/Landing.vue");
+const Login = () => import("@/views/StandAlone/Login/Login.vue");
 
-import AppLayout from "@/layouts/AppLayout/AppLayout.vue";
+const AppLayout = () => import("@/layouts/AppLayout/AppLayout.vue");
 
-import Dashboard from "@/views/app/Dashboard.vue";
-import Competitor from "@/views/app/Competitor.vue";
-import Event from "@/views/app/Event.vue";
-import Report from "@/views/app/Report.vue";
-import Trend from "@/views/app/Trend.vue";
-import Setting from "@/views/app/Setting.vue";
+const Dashboard = () => import("@/views/app/Dashboard.vue");
+const Competitor = () => import("@/views/app/Competitor.vue");
+const Event = () => import("@/views/app/Event.vue");
+const Report = () => import("@/views/app/Report.vue");
+const Trend = () => import("@/views/app/Trend.vue");
+const Setting = () => import("@/views/app/Setting.vue");
 
 
 // 创建路由实例，传入一个配置对象

@@ -28,10 +28,14 @@ const COLORS = {
     feature: "#4670d2",      // 功能更新 → 蓝
     price: "#c85fd7",        // 价格变动 → 紫(偏品红)
     sentiment: "#3cbea0",    // 舆论热度 → 绿
+    content: "#fa8c16",      // 内容更新 → 橙
+    other: "#909399",        // 其他 → 灰
     // 渐变（RGBA，带透明度）
     featureGradient: ["rgba(70, 110, 210, 0.3)", "rgba(70, 110, 210, 0.02)"],
     priceGradient: ["rgba(200, 95, 215, 0.25)", "rgba(200, 95, 215, 0.02)"],
     sentimentGradient: ["rgba(60, 190, 160, 0.25)", "rgba(60, 190, 160, 0.02)"],
+    contentGradient: ["rgba(250, 140, 22, 0.22)", "rgba(250, 140, 22, 0.02)"],
+    otherGradient: ["rgba(144, 147, 153, 0.20)", "rgba(144, 147, 153, 0.02)"],
     // 文字 / 边框 / 分割线
     textPrimary: "#303133",
     textSecondary: "#7a7f85",
@@ -90,7 +94,7 @@ function buildOption(list: TrendPoint[]) {
             icon: "rect",
             itemWidth: 12,
             itemHeight: 12,
-            data: ["功能更新", "价格变动", "舆论热度"],
+            data: ["功能更新", "价格变动", "舆论热度", "内容更新", "其他"],
             textStyle: { color: COLORS.textPrimary, fontSize: FONTS.legend },
         },
         grid: {
@@ -161,6 +165,38 @@ function buildOption(list: TrendPoint[]) {
                     ]),
                 },
                 data: list.map(d => d.sentiment),
+            },
+            {
+                name: "内容更新",
+                type: "line",
+                smooth: true,
+                symbol: "none",
+                color: COLORS.content,
+                lineStyle: { width: 2, color: COLORS.content },
+                emphasis: { lineStyle: { width: 2, color: COLORS.content } },
+                areaStyle: {
+                    color: new graphic.LinearGradient(0, 0, 0, 1, [
+                        { offset: 0, color: COLORS.contentGradient[0] },
+                        { offset: 1, color: COLORS.contentGradient[1] },
+                    ]),
+                },
+                data: list.map(d => d.content),
+            },
+            {
+                name: "其他",
+                type: "line",
+                smooth: true,
+                symbol: "none",
+                color: COLORS.other,
+                lineStyle: { width: 2, color: COLORS.other },
+                emphasis: { lineStyle: { width: 2, color: COLORS.other } },
+                areaStyle: {
+                    color: new graphic.LinearGradient(0, 0, 0, 1, [
+                        { offset: 0, color: COLORS.otherGradient[0] },
+                        { offset: 1, color: COLORS.otherGradient[1] },
+                    ]),
+                },
+                data: list.map(d => d.other),
             },
         ],
     }

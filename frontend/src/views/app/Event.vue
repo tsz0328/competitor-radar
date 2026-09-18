@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import { useEventStore } from "@/stores/event";
 import { useCompetitorStore } from "@/stores/competitor";
+import EventDetailDrawer from "@/components/EventDetailDrawer.vue";
 import type { EventRecord } from "@/types/event";
 import {
   Search,
@@ -14,28 +16,28 @@ import {
   MoreFilled,
   ArrowLeft,
   ArrowRight,
-  Close,
 } from "@element-plus/icons-vue";
 
 const eventStore = useEventStore();
 const competitorStore = useCompetitorStore();
+const route = useRoute();
 
-// 顶部筛选
+// 顶部筛选（关键词做 300ms 防抖，避免每次按键都打接口）
 const keyword = ref("");
-const filterCompetitor = ref("all");
-const filterType = ref("all");
-const filterPriority = ref("all");
-function daysAgo(days: number): Date {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d;
-}
+const appliedKeyword = ref("");
+let kwTimer: ReturnType<typeof setTimeout> | undefined;
+watch(
+  keyword,
+  (v) => {
+    if (kwTimer) clearTimeout(kwTimer);
+    kwTimer = setTimeout(() => {
+      appliedKeyword.value = v;
+    }, 300);
+  },
+);
 
-// 默认近 7 天（formatDate 是函数声明会被提升，可提前调用），避免出现写死的过期区间
-const dateRange = ref<[string, string]>([
-  formatDate(daysAgo(6)),
-  formatDate(new Date()),
-]);
+// 默认近 7 天；formatDate 是函数声明会被提升，可提前调用
+const dateRange = ref<[string, string] | null>(["", ""]);
 const activeRange = ref("7d"); // 当前选中的快捷预设：'' | 'today' | '7d' | '30d'
 
 function formatDate(d: Date): string {
@@ -50,21 +52,36 @@ function setQuickRange(key: string) {
   const start = new Date();
   if (key === "7d") start.setDate(end.getDate() - 6);
   else if (key === "30d") start.setDate(end.getDate() - 29);
+  else if (key !== "") return; // 自定义日期由日期选择器直接改 dateRange，这里不动
   dateRange.value = [formatDate(start), formatDate(end)];
   activeRange.value = key;
 }
 
-// 右侧筛选面板
-const sideCompetitor = ref("all");
+// 初始化为近 7 天
+setQuickRange("7d");
+
+// 从工作台趋势图点击某天钻取过来：直接筛选该日
+const dateParam = route.query.date;
+if (typeof dateParam === "string" && dateParam) {
+  dateRange.value = [dateParam, dateParam];
+  activeRange.value = "";
+}
+
+// 右侧筛选面板（支持从趋势页带 competitorId 跳转过来时预选竞品）
+const competitorParam = route.query.competitorId;
+const sideCompetitor = ref(
+  typeof competitorParam === "string" && competitorParam ? competitorParam : "all",
+);
 const sideTypes = ref(["feature", "price", "content", "negative", "other"]);
-const sidePriorities = ref(["high", "mid", "low"]);
+const priorityParam = route.query.priority;
+const initialPriorities = typeof priorityParam === "string" ? priorityParam.split(",").filter(Boolean) : null;
+const sidePriorities = ref(initialPriorities ?? ["high", "mid", "low"]);
 const sideConfidence = ref<[number, number]>([0, 100]);
 
 const page = ref(1);
 const pageSize = ref(10);
 
 onMounted(() => {
-  eventStore.loadEventList();
   competitorStore.loadCompetitors(); // 右侧「竞品」筛选用真实数据
 });
 
@@ -96,51 +113,67 @@ const competitorOptions = computed(() =>
   competitorStore.competitors.map((c) => ({ label: c.name, value: String(c.id) })),
 );
 
-// 各优先级的真实数量（替换原先写死的计数）
-const priorityCounts = computed(() => {
-  const counts: Record<string, number> = { high: 0, mid: 0, low: 0 };
-  for (const r of records.value) {
-    counts[r.priorityType] = (counts[r.priorityType] ?? 0) + 1;
-  }
-  return counts;
+// 各优先级的真实数量（来自后端分面计数，不被优先级自身筛选清零）
+const priorityCounts = computed(() => ({
+  high: summary.value?.high ?? 0,
+  mid: summary.value?.mid ?? 0,
+  low: summary.value?.low ?? 0,
+}));
+
+// 拼接后端查询参数：分页 + 全部筛选下推到服务端
+const queryParams = computed(() => {
+  const p: Record<string, unknown> = {
+    limit: pageSize.value,
+    offset: (page.value - 1) * pageSize.value,
+  };
+  if (sideCompetitor.value !== "all") p.competitorId = Number(sideCompetitor.value);
+  if (activeCategory.value !== "total") p.category = activeCategory.value;
+  if (sidePriorities.value.length) p.priority = sidePriorities.value.join(",");
+  if (sideConfidence.value[0] > 0) p.minConfidence = sideConfidence.value[0];
+  if (sideConfidence.value[1] < 100) p.maxConfidence = sideConfidence.value[1];
+  const k = appliedKeyword.value.trim();
+  if (k) p.keyword = k;
+  const [s, e] = dateRange.value ?? [];
+  if (s) p.startDate = s;
+  if (e) p.endDate = e;
+  return p;
 });
 
-/** 顶部关键字/分类 + 右侧竞品/优先级/置信度 + 日期范围，全部即时生效 */
-const filteredRecords = computed(() => {
-  const k = keyword.value.trim().toLowerCase();
-  let list = records.value;
+function loadEvents() {
+  eventStore.loadEventList(queryParams.value);
+}
 
-  if (activeCategory.value !== "total") {
-    list = list.filter((r) => r.category === activeCategory.value);
+// 筛选条件（不含分页）变化 → 回到第 1 页并重新拉取
+watch(
+  () => ({
+    competitor: sideCompetitor.value,
+    category: activeCategory.value,
+    priorities: [...sidePriorities.value],
+    conf: [...sideConfidence.value],
+    keyword: appliedKeyword.value,
+    range: [...(dateRange.value ?? [])],
+    rangeKey: activeRange.value,
+  }),
+  () => {
+    page.value = 1;
+    loadEvents();
+  },
+  { immediate: true },
+);
+
+// 仅分页变化 → 重新拉取（切页不回第 1 页，换每页条数则回第 1 页）
+watch(page, () => loadEvents());
+watch(pageSize, () => {
+  if (page.value !== 1) {
+    page.value = 1; // 会触发上面的 page watch 拉取，无需重复请求
+  } else {
+    loadEvents();
   }
-  if (sideCompetitor.value !== "all") {
-    list = list.filter((r) => String(r.competitorId ?? "") === sideCompetitor.value);
-  }
-  list = list.filter((r) => sidePriorities.value.includes(r.priorityType));
-
-  const [minConfidence, maxConfidence] = sideConfidence.value;
-  list = list.filter(
-    (r) => r.aiConfidence >= minConfidence && r.aiConfidence <= maxConfidence,
-  );
-
-  if (k) {
-    list = list.filter((r) =>
-      [r.title, r.desc, r.brand, ...(r.keywords ?? [])]
-        .join(" ")
-        .toLowerCase()
-        .includes(k),
-    );
-  }
-
-  const [startDate, endDate] = dateRange.value;
-  return list.filter((r) => r.date >= startDate && r.date <= endDate);
 });
 
 function resetFilters() {
   keyword.value = "";
-  filterCompetitor.value = "all";
-  filterType.value = "all";
-  filterPriority.value = "all";
+  appliedKeyword.value = "";
   activeCategory.value = "total";
   sideCompetitor.value = "all";
   sidePriorities.value = ["high", "mid", "low"];
@@ -148,34 +181,24 @@ function resetFilters() {
   setQuickRange("7d");
 }
 
-// ---- 事件详情抽屉 ----
+// ---- 事件详情抽屉：本体是公共组件，这里只负责"打开哪一条" ----
 const detailVisible = ref(false);
-const detail = computed(() => eventStore.eventDetail);
+const detailId = ref<number | null>(null);
 
-async function openDetail(record: EventRecord) {
-  detailVisible.value = true; // 先开抽屉再加载，用 loading 遮罩承接等待
-  try {
-    await eventStore.loadEventDetail(record.id);
-  } catch {
-    detailVisible.value = false; // 失败提示由 request.ts 拦截器统一弹出
-  }
+function openDetail(record: EventRecord) {
+  detailId.value = record.id;
+  detailVisible.value = true; // 组件打开后自行加载，等待态由组件承接
 }
 
-/** 把 unified diff 拆行渲染，按行着色 */
-const diffLines = computed(() => (detail.value?.diffDetail ?? "").split("\n"));
-
-function diffLineClass(line: string): string {
-  if (line.startsWith("+++") || line.startsWith("---")) return "diff-file";
-  if (line.startsWith("@@")) return "diff-hunk";
-  if (line.startsWith("+")) return "diff-add";
-  if (line.startsWith("-")) return "diff-del";
-  return "diff-ctx";
+// 抽屉内"相关事件"跳转：更新 eventId 即可，抽屉自身的 watch 会重新加载详情
+function onSelectRelated(id: number) {
+  detailId.value = id;
 }
 
 // 按日期分组
 const groups = computed(() => {
   const map = new Map<string, { label: string; items: EventRecord[] }>();
-  for (const r of filteredRecords.value) {
+  for (const r of records.value) {
     if (!map.has(r.date)) {
       map.set(r.date, { label: r.dateLabel, items: [] });
     }
@@ -272,8 +295,11 @@ const groups = computed(() => {
                       }}</span>
                     </div>
                     <div class="event-sub">{{ item.brandDesc }}</div>
-                    <div class="event-desc">
-                      {{ item.title }}，{{ item.desc }}
+                    <div class="event-title">{{ item.title }}</div>
+                    <div class="event-desc">{{ item.desc }}</div>
+                    <div v-if="item.aiAnalysis" class="event-ai">
+                      <span class="ai-label">AI 分析</span>
+                      <span class="ai-text">{{ item.aiAnalysis }}</span>
                     </div>
                     <div class="event-keywords">
                       <span
@@ -316,16 +342,19 @@ const groups = computed(() => {
                 </div>
               </div>
             </div>
+          <div v-if="!eventStore.listLoading && groups.length === 0" class="empty">
+            暂无符合条件的事件
+          </div>
           </div>
         </div>
 
         <!-- 分页（固定在底部，不随列表滚动） -->
         <div class="pagination-bar">
-          <span class="total-text">共 {{ filteredRecords.length }} 条事件</span>
+          <span class="total-text">共 {{ eventStore.eventList?.total ?? 0 }} 条事件</span>
           <el-pagination
             v-model:current-page="page"
             v-model:page-size="pageSize"
-            :total="filteredRecords.length"
+            :total="eventStore.eventList?.total ?? 0"
             :page-sizes="[10, 20, 50]"
             layout="prev, pager, next, sizes"
             :prev-icon="ArrowLeft"
@@ -339,7 +368,7 @@ const groups = computed(() => {
       <aside class="side-filter card">
         <header class="side-head">
           <span class="side-title">筛选条件</span>
-          <el-button type="text" class="reset-btn" @click="resetFilters"
+          <el-button link class="reset-btn" @click="resetFilters"
             >重置</el-button
           >
         </header>
@@ -389,122 +418,8 @@ const groups = computed(() => {
       </aside>
     </div>
 
-    <!-- 事件详情抽屉 -->
-    <el-drawer
-      v-model="detailVisible"
-      :with-header="false"
-      size="min(760px, 94vw)"
-      class="event-detail-drawer"
-    >
-      <div v-loading="eventStore.detailLoading" class="detail-body">
-        <template v-if="detail">
-          <header class="detail-head">
-            <div
-              class="detail-logo"
-              :style="{ backgroundColor: detail.iconBg, color: detail.iconColor }"
-            >
-              {{ detail.iconText }}
-            </div>
-            <div class="detail-head-main">
-              <div class="detail-brand-row">
-                <span class="detail-brand">{{ detail.brand }}</span>
-                <span class="event-tag" :class="detail.tagType">{{
-                  detail.tag
-                }}</span>
-                <span class="priority-tag" :class="detail.priorityType">{{
-                  detail.priority
-                }}</span>
-              </div>
-              <div class="detail-sub">
-                {{ detail.date }} {{ detail.time }} · {{ detail.ago }} · 来源：{{
-                  detail.source
-                }}
-              </div>
-            </div>
-            <el-button link :icon="Close" @click="detailVisible = false" />
-          </header>
-
-          <section class="detail-section">
-            <div class="detail-title">{{ detail.title }}</div>
-            <p class="detail-summary">{{ detail.summary }}</p>
-            <div v-if="detail.keywords?.length" class="detail-keywords">
-              <span v-for="k in detail.keywords" :key="k" class="keyword">{{
-                k
-              }}</span>
-            </div>
-          </section>
-
-          <section class="detail-section">
-            <div class="detail-section-title">事件信息</div>
-            <div class="meta-grid">
-              <div class="meta-item">
-                <span class="meta-label">事件类型</span>
-                <span>{{ detail.tag }}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">优先级</span>
-                <span class="priority-text" :class="detail.priorityType">{{
-                  detail.priority
-                }}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">AI 置信度</span>
-                <span class="meta-confidence">
-                  <el-progress
-                    :percentage="detail.aiConfidence"
-                    :show-text="false"
-                    color="#22c55e"
-                  />
-                  <b>{{ detail.aiConfidence }}%</b>
-                </span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">检测时间</span>
-                <span>{{ detail.date }} {{ detail.time }}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">监控页面</span>
-                <a
-                  v-if="detail.sourceUrl"
-                  :href="detail.sourceUrl"
-                  target="_blank"
-                  rel="noreferrer"
-                  class="meta-link"
-                  >{{ detail.sourceUrl }}</a
-                >
-                <span v-else>{{ detail.source }}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">竞品官网</span>
-                <a
-                  v-if="detail.url"
-                  :href="detail.url"
-                  target="_blank"
-                  rel="noreferrer"
-                  class="meta-link"
-                  >{{ detail.domain }}</a
-                >
-                <span v-else>—</span>
-              </div>
-            </div>
-          </section>
-
-          <section class="detail-section">
-            <div class="detail-section-title">
-              变化内容
-              <span class="detail-hint">+ 新增 / - 删除</span>
-            </div>
-            <pre v-if="detail.diffDetail" class="diff-view"><code><span
-                v-for="(line, idx) in diffLines"
-                :key="idx"
-                class="diff-line"
-                :class="diffLineClass(line)"
-              >{{ line || " " }}</span></code></pre>
-            <div v-else class="detail-empty">这条事件没有留存差异内容</div>
-          </section>
-        </template>
-      </div>
-    </el-drawer>
+    <!-- 事件详情抽屉（事件流页与 Dashboard 共用同一个组件） -->
+    <EventDetailDrawer v-model="detailVisible" :event-id="detailId" @select="onSelectRelated" />
   </div>
 </template>
 
@@ -771,53 +686,50 @@ const groups = computed(() => {
   font-weight: bold;
 }
 
-.event-tag {
-  font-size: 1vmax;
-  padding: 0 0.5vw;
-  border-radius: 0.4vmax;
-}
-
-.tag-new {
-  background-color: #e6f9f0;
-  color: #22c55e;
-}
-.tag-price {
-  background-color: #fff3e6;
-  color: #fa8c16;
-}
-.tag-update {
-  background-color: #e6f4ff;
-  color: #1890ff;
-}
-.tag-negative {
-  background-color: #fff1f0;
-  color: #ff4d4f;
-}
-.tag-other {
-  background-color: #f0f0f0;
-  color: #909399;
-}
-
 .event-sub {
   font-size: 1vmax;
   color: var(--app-color-gray);
+}
+
+.event-title {
+  font-size: 1.1vmax;
+  font-weight: bold;
 }
 
 .event-desc {
   font-size: 1vmax;
 }
 
+/* AI 如何理解这条变化：与事实摘要视觉区分 */
+.event-ai {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6vw;
+  margin-top: 0.3vh;
+  padding: 0.6vh 0.8vw;
+  font-size: 1vmax;
+  color: #5b21b6;
+  background: #faf7ff;
+  border: 1px solid #ece4fb;
+  border-radius: 0.6vmax;
+}
+
+.ai-label {
+  flex-shrink: 0;
+  font-size: 0.85vmax;
+  color: #8b5cf6;
+  border: 1px solid #e0d4fb;
+  border-radius: 0.4vmax;
+  padding: 0 0.4vw;
+}
+
+.ai-text {
+  min-width: 0;
+}
+
 .event-keywords {
   display: flex;
   gap: 0.5vw;
-}
-
-.keyword {
-  font-size: 1vmax;
-  padding: 0 0.5vw;
-  border-radius: 0.4vmax;
-  background: #f4f4f5;
-  color: var(--app-color-gray);
 }
 
 .event-side {
@@ -856,25 +768,6 @@ const groups = computed(() => {
   justify-content: space-between;
 }
 
-.priority-tag {
-  font-size: 1vmax;
-  padding: 0 0.5vw;
-  border-radius: 0.4vmax;
-}
-
-.priority-tag.high {
-  background: #fff1f0;
-  color: #ff4d4f;
-}
-.priority-tag.mid {
-  background: #fff3e6;
-  color: #fa8c16;
-}
-.priority-tag.low {
-  background: #f0f0f0;
-  color: #909399;
-}
-
 .detail-btn {
   align-self: flex-end;
 }
@@ -883,6 +776,14 @@ const groups = computed(() => {
   font-size: 1vmax;
   color: var(--app-color-gray);
   text-align: right;
+}
+
+/* 空状态 */
+.empty {
+  text-align: center;
+  color: var(--app-color-gray);
+  padding: 6vh 0;
+  font-size: 1.1vmax;
 }
 
 /* 分页 */
@@ -981,194 +882,4 @@ const groups = computed(() => {
   width: 100%;
 }
 
-/* ===== 事件详情抽屉 ===== */
-.detail-body {
-  min-height: 240px;
-}
-
-.detail-head {
-  display: flex;
-  align-items: center;
-  gap: 1vw;
-  padding-bottom: 1.5vh;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.detail-logo {
-  width: 4vmax;
-  height: 4vmax;
-  min-width: 44px;
-  min-height: 44px;
-  border-radius: 0.6vmax;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.6vmax;
-  font-weight: bold;
-  flex-shrink: 0;
-}
-
-.detail-head-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5vh;
-}
-
-.detail-brand-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.6vw;
-}
-
-.detail-brand {
-  font-size: 1.3vmax;
-  font-weight: bold;
-}
-
-.detail-sub {
-  font-size: 0.95vmax;
-  color: var(--app-color-gray);
-}
-
-.detail-section {
-  margin-top: 2.5vh;
-}
-
-.detail-section-title {
-  display: flex;
-  align-items: baseline;
-  gap: 0.6vw;
-  font-size: 1.05vmax;
-  font-weight: bold;
-  margin-bottom: 1vh;
-  padding-left: 0.6vw;
-  border-left: 3px solid var(--app-color-primary);
-}
-
-.detail-hint {
-  font-size: 0.85vmax;
-  font-weight: normal;
-  color: var(--app-color-gray);
-}
-
-.detail-title {
-  font-size: 1.25vmax;
-  font-weight: bold;
-  line-height: 1.6;
-}
-
-.detail-summary {
-  margin: 1vh 0 0;
-  font-size: 1.05vmax;
-  line-height: 1.75;
-}
-
-.detail-keywords {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5vw;
-  margin-top: 1.2vh;
-}
-
-/* 事件信息网格 */
-.meta-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1.2vh 1.5vw;
-}
-
-.meta-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4vh;
-  font-size: 1vmax;
-  min-width: 0;
-}
-
-.meta-label {
-  font-size: 0.9vmax;
-  color: var(--app-color-gray);
-}
-
-.meta-confidence {
-  display: flex;
-  align-items: center;
-  gap: 0.6vw;
-}
-
-.meta-confidence :deep(.el-progress) {
-  flex: 1;
-  max-width: 140px;
-}
-
-.meta-link {
-  color: var(--app-color-primary);
-  text-decoration: none;
-  word-break: break-all;
-}
-
-.meta-link:hover {
-  text-decoration: underline;
-}
-
-.priority-text.high {
-  color: #ff4d4f;
-}
-.priority-text.mid {
-  color: #fa8c16;
-}
-.priority-text.low {
-  color: #22c55e;
-}
-
-/* 差异视图：按行着色 */
-.diff-view {
-  margin: 0;
-  padding: 1.2vh 1vw;
-  max-height: 42vh;
-  overflow: auto;
-  background: #fafafa;
-  border: 1px solid #f0f0f0;
-  border-radius: 0.8vmax;
-  font-family: Consolas, Menlo, "Courier New", monospace;
-  font-size: 0.92vmax;
-  line-height: 1.7;
-}
-
-.diff-line {
-  display: block;
-  white-space: pre-wrap;
-  word-break: break-all;
-  padding: 0 0.4vw;
-}
-
-.diff-add {
-  background: #e8f8ee;
-  color: #12805a;
-}
-.diff-del {
-  background: #fdecec;
-  color: #c81e4a;
-}
-.diff-hunk,
-.diff-file {
-  color: #8c8c8c;
-}
-.diff-file {
-  font-weight: bold;
-}
-.diff-ctx {
-  color: #595959;
-}
-
-.detail-empty {
-  padding: 2vh 1vw;
-  font-size: 1vmax;
-  color: var(--app-color-gray);
-  background: #fafafa;
-  border-radius: 0.8vmax;
-}
 </style>

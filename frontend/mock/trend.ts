@@ -10,6 +10,8 @@ function buildTrend(): TrendPoint[] {
       feature: Math.round(10 + i * 0.3 + Math.sin(i / 5) * 8),
       price: Math.round(8 + i * 0.2 + Math.cos(i / 4) * 6),
       sentiment: Math.round(Math.abs(Math.sin(i / 3)) * 20),
+      content: Math.round(Math.abs(Math.cos(i / 6)) * 14),
+      other: Math.round(Math.abs(Math.sin(i / 7)) * 5),
     };
   });
 }
@@ -23,7 +25,7 @@ interface MockContext {
 
 export default [
   {
-    url: "/api/trend",
+    url: "/api/trends/overview",
     method: "get",
     timeout: 300,
     // query.days 对应 ?days=7|30|90

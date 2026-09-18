@@ -10,6 +10,8 @@ function resolveLogo(domain: string): string {
 }
 
 // 原始“数据库”数据（后端返回前没有 logoUrl）
+// 示例竞品统一为同类 SaaS / 协作 / App 产品，与项目定位（监控同类型官网）保持一致，
+// 不含电商类目（v1 明确不做电商商品对标）。
 const rawCompetitors = [
   {
     id: 1,
@@ -75,10 +77,10 @@ const rawCompetitors = [
     id: 4,
     name: "Keep",
     domain: "keep.com",
-    category: "消费品牌",
-    categoryType: "brand",
-    desc: "运动健身平台",
-    pages: ["官网首页", "会员中心", "活动页面"],
+    category: "运动健身",
+    categoryType: "app",
+    desc: "运动健身 App",
+    pages: ["官网首页", "定价页", "更新日志"],
     extraPages: 0,
     frequency: "每天 09:00",
     frequencyDesc: "定时抓取",
@@ -113,13 +115,13 @@ const rawCompetitors = [
   },
   {
     id: 6,
-    name: "京东",
-    domain: "jd.com",
-    category: "电商平台",
-    categoryType: "ecommerce",
-    desc: "综合电商平台",
-    pages: ["官网首页", "促销活动", "会员页面"],
-    extraPages: 2,
+    name: "Figma",
+    domain: "figma.com",
+    category: "设计工具",
+    categoryType: "tool",
+    desc: "在线协作设计工具",
+    pages: ["官网首页", "定价页", "更新日志"],
+    extraPages: 1,
     frequency: "每天 10:00",
     frequencyDesc: "定时抓取",
     lastFetchAgo: "1 天前",
@@ -133,13 +135,13 @@ const rawCompetitors = [
   },
   {
     id: 7,
-    name: "腾讯",
-    domain: "qq.com",
-    category: "科技公司",
-    categoryType: "tech",
-    desc: "科技巨头",
-    pages: ["官网首页", "新闻中心", "会员页面"],
-    extraPages: 1,
+    name: "腾讯文档",
+    domain: "docs.qq.com",
+    category: "协作办公",
+    categoryType: "saas",
+    desc: "在线文档协作",
+    pages: ["官网首页", "更新日志", "定价页面"],
+    extraPages: 0,
     frequency: "每天 12:00",
     frequencyDesc: "定时抓取",
     lastFetchAgo: "2 天前",
@@ -153,12 +155,12 @@ const rawCompetitors = [
   },
   {
     id: 8,
-    name: "字节跳动",
-    domain: "bytedance.com",
-    category: "科技公司",
-    categoryType: "tech",
-    desc: "科技巨头",
-    pages: ["官网首页", "新闻中心", "会员页面"],
+    name: "钉钉",
+    domain: "dingtalk.com",
+    category: "协作办公",
+    categoryType: "saas",
+    desc: "企业协同办公平台",
+    pages: ["官网首页", "更新日志", "定价页面"],
     extraPages: 1,
     frequency: "每天 12:00",
     frequencyDesc: "定时抓取",
@@ -171,31 +173,11 @@ const rawCompetitors = [
     changes: 0,
     todayChanges: 0,
   },
-  {
-    id: 9,
-    name: "字节跳动",
-    domain: "bytedance.com",
-    category: "科技公司",
-    categoryType: "tech",
-    desc: "科技巨头",
-    pages: ["官网首页", "新闻中心", "会员页面"],
-    extraPages: 1,
-    frequency: "每天 12:00",
-    frequencyDesc: "定时抓取",
-    lastFetchAgo: "2 天前",
-    lastFetchTime: "2026-06-23 12:05",
-    enabled: true,
-    status: "监控中",
-    statusType: "success",
-    statusDesc: "正常",
-    changes: 0,
-    todayChanges: 0,
-  }
 ];
 
 export default [
   {
-    url: "/api/competitors/CompetitorList",
+    url: "/api/competitors",
     method: "get",
     timeout: 300, // 模拟网络延迟
     response: () => ({

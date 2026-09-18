@@ -10,6 +10,7 @@ import {
   createCompetitor,
   deleteCompetitor,
   fetchCompetitors,
+  reviveSources as reviveSourcesApi,
   updateCompetitor,
 } from "@/api/competitor";
 
@@ -53,13 +54,32 @@ export const useCompetitorStore = defineStore("competitor", () => {
     return result;
   }
 
-  // 开关变更后同步状态列展示（enabled 已由 v-model 翻转，这里只同步展示字段）
-  function toggleMonitor(id: number) {
+  /** 一键复活被自动停用的监控源：跑完刷新列表，反映复活后的状态 */
+  async function reviveSources(id: number) {
+    const updated = await reviveSourcesApi(id);
+    await loadCompetitors();
+    return updated;
+  }
+
+  // 开关变更后同步到后端（enabled 已由 v-model 翻转，这里按新值持久化暂停/开启）
+  async function toggleMonitor(id: number) {
     const item = competitors.value.find((c) => c.id === id);
     if (!item) return;
-    item.statusLabel = item.enabled ? "监控中" : "已暂停";
-    item.statusType = item.enabled ? "success" : "info";
-    item.statusDesc = item.enabled ? "正常" : "手动暂停";
+    const willEnable = item.enabled; // 已是切换后的目标值
+    // 乐观更新展示字段，避免等待接口期间闪烁
+    item.statusLabel = willEnable ? "监控中" : "已暂停";
+    item.statusType = willEnable ? "success" : "info";
+    item.statusDesc = willEnable ? "正常" : "手动暂停";
+    try {
+      await updateCompetitor(id, { status: willEnable ? "active" : "paused" });
+      await loadCompetitors();
+    } catch {
+      // 失败回滚：恢复开关与展示
+      item.enabled = !willEnable;
+      item.statusLabel = !willEnable ? "监控中" : "已暂停";
+      item.statusType = !willEnable ? "success" : "info";
+      item.statusDesc = !willEnable ? "正常" : "手动暂停";
+    }
   }
 
   return {
@@ -70,6 +90,7 @@ export const useCompetitorStore = defineStore("competitor", () => {
     editCompetitor,
     removeCompetitor,
     runCrawl,
+    reviveSources,
     toggleMonitor,
   };
 });

@@ -9,8 +9,8 @@ export interface CompetitorItem {
   logoUrl?: string;
   /** 分类标签，如 SaaS工具 / AI产品 */
   category: string;
-  /** 分类标签样式类型 */
-  categoryType: "saas" | "ai" | "brand" | "ecommerce";
+  /** 分类标签样式类型（v1 只监控同类 SaaS / App，不含电商） */
+  categoryType: "saas" | "ai" | "app" | "tool";
   /** 一句话描述 */
   desc: string;
   /** 监控页面名称列表 */
@@ -24,6 +24,8 @@ export interface CompetitorItem {
   lastFetchAgo: string;
   /** 最近抓取绝对时间 */
   lastFetchTime: string;
+  /** 预计下次抓取时间，如「明天 08:00」/「即将抓取」/「已暂停」 */
+  nextCrawlAt: string;
   /** 监控开关：true=开启，false=暂停 */
   enabled: boolean;
   /** 展示用中文状态：监控中 / 已暂停 */
@@ -81,6 +83,8 @@ export interface MonitorSourceItem {
   lastError?: string | null;
   failCount?: number;
   lastCrawledAt?: string | null;
+  /** 是否被「连续失败自动停用」：前端据此展示提示与重新启用按钮 */
+  autoDisabled?: boolean;
 }
 
 /** 单个监控源的抓取结果 */
@@ -94,6 +98,8 @@ export interface CrawlSourceResult {
   changed: boolean;
   /** 是否本次才首次抓取（建立基准，不算变化） */
   firstTime: boolean;
+  /** 本次抓取是否因此产出了一条情报事件（变化且通过显著性过滤） */
+  eventCreated: boolean;
   error?: string | null;
   durationMs: number;
 }
@@ -117,5 +123,37 @@ export interface CompetitorCreatePayload {
   sources?: MonitorSourceInput[];
 }
 
-/** 编辑竞品的请求体（PATCH，语义为局部更新） */
-export type CompetitorUpdatePayload = CompetitorCreatePayload;
+/** 编辑竞品的请求体（PATCH，语义为局部更新，字段均可选） */
+export type CompetitorUpdatePayload = Partial<CompetitorCreatePayload> & {
+  /** 监控开关：active=开启监控，paused=暂停监控 */
+  status?: "active" | "paused";
+};
+
+/** 自动发现：单个监控页类型的查找结果 */
+export interface DiscoveredSource {
+  sourceType: SourceType;
+  label: string;
+  /** 找到时为地址，未找到为 null */
+  url: string | null;
+  found: boolean;
+  /** 来源：link=首页链接 / sitemap / common=常见路径兜底 */
+  origin: string;
+  httpStatus?: number | null;
+}
+
+/** 自动发现：一次「自动寻找页面」的整体结果 */
+export interface DiscoverResult {
+  officialUrl: string;
+  /** 官网首页是否可达（不可达时无法自动发现） */
+  homepageReachable: boolean;
+  sources: DiscoveredSource[];
+}
+
+/** 智能预填：根据竞品名称推断的官网地址与分类 */
+export interface SuggestResult {
+  officialUrl: string | null;
+  category: string | null;
+  /** llm=AI 推断 / probe=域名探测 / none=没识别出来 */
+  source: string;
+  message: string;
+}

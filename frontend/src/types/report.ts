@@ -115,6 +115,8 @@ export interface ReportDetail {
   favorite: boolean;
   /** 本周核心摘要 */
   summary: string;
+  /** AI 生成的周报正文（Markdown） */
+  content: string;
   stats: ReportStatItem[];
   highlights: ReportHighlight[];
   /** 事件类型分布 */
