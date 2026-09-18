@@ -9,3 +9,8 @@ ignore = ["B008"]
 
 [lint.isort]
 known-first-party = ["app"]     # 告诉 Ruff：app 是我们自己的包
+
+[lint.per-file-ignores]
+# Alembic 自动生成的迁移：行宽与导入排序由生成器决定，手改反而会
+# 在下次 autogenerate 时被打回原形；但 F（未定义名）/B（bug 模式）仍然检查
+"migrations/**" = ["E501", "I001"]

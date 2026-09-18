@@ -1,4 +1,4 @@
-# AI 竞品情报雷达 — 产品定位文档
+# 竞品雷达 — 产品定位文档
 
 > 版本：v1.0　作者：唐思哲　更新日期：2026-09-05
 > 配套文档：`README.md` / `docs/architecture.md`（技术方案）/ `docs/data-source-design.md`（数据源抽象）/ `docs/milestones.md`（里程碑）

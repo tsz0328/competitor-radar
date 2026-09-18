@@ -1,0 +1,22 @@
+# 本地开发遗留物，不进镜像
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# 本地数据与密钥
+*.db
+*.sqlite
+storage/
+.env
+
+# 工具缓存
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# 部署文件自身不需要打进镜像
+Dockerfile
+.dockerignore
+docker-entrypoint.sh.bak

@@ -1,4 +1,4 @@
-# AI 竞品情报雷达 — 技术方案文档
+# 竞品雷达 — 技术方案文档
 
 > 版本：v1.0　作者：唐思哲　更新日期：2026-06
 
@@ -25,6 +25,8 @@
 
 ### 1.4 不做什么（边界）
 
+- **不做电商商品对标**：淘宝 / 京东 / 拼多多 / 抖音等平台的价格、销量、评论不在 v1 范围内（需登录、接口签名与平台 ToS 均构成硬约束）。v2 仅以「数据源插件」形式接入**公开可得、可 Diff** 的数据源（DTC 独立站 / Shopify 商品页、App Store 与 Google Play 公开 RSS 与榜单、Amazon PA-API / 京东联盟等官方开放平台 API），不绕过登录、不破解签名
+- **不做需登录 / 需破解签名 / ToS 明确禁止的数据源**。v1 白名单与黑名单详见 `docs/positioning.md`；白名单即：官网首页、定价页、更新日志、官方博客、帮助文档、服务状态页、RSS、应用商店页
 - 不做付费数据源接入（如天眼查 API），第一版只做公开网页信息
 - 不做情感分析模型自研，直接调用大模型能力
 - 不做多用户 SaaS 化（第一版单用户/小团队即可）
@@ -80,7 +82,7 @@ Playwright 访问竞品页面 → 抓取 HTML/文本
     ↓
 与上一次快照做 Diff 对比（文本相似度算法）
     ↓
-若有显著变化 → 调用 LLM 生成摘要 + 分类（新功能/降价/差评激增）
+若有显著变化 → 调用 LLM 生成摘要 + 分类（功能更新 / 价格变化 / 内容更新 / 舆论动态 / 其他）
     ↓
 写入"情报事件"表
     ↓
@@ -134,59 +136,99 @@ created_at      DATETIME
 **竞品表 `competitors`**
 ```sql
 id              BIGINT PRIMARY KEY AUTO_INCREMENT
-user_id         BIGINT  -- 所属用户
+user_id         BIGINT           -- 所属用户
 name            VARCHAR(100)     -- 竞品名称
 official_url    VARCHAR(255)     -- 官网地址
-monitor_urls    JSON             -- 监控的多个页面（更新日志/定价页/评论页）
-category        VARCHAR(50)      -- 行业分类
+category        VARCHAR(50)      -- 行业分类（同类 SaaS / App）
 status          ENUM('active','paused')
 created_at      DATETIME
 ```
 
-**网页快照表 `page_snapshots`**
+> 说明：早期设计里的 `monitor_urls`（JSON 页面名数组）**已废弃**——无结构 JSON 无法承载「页面类型 / 频率 / 渲染方式 / Diff 策略」，由下面的 `monitor_sources` 表取代。
+
+**监控源表 `monitor_sources`**（竞品身上一个具体要盯的页面）
+```sql
+id                  BIGINT PRIMARY KEY AUTO_INCREMENT
+competitor_id       BIGINT          -- 所属竞品
+source_type         VARCHAR(30)     -- homepage|pricing|changelog|blog|docs|status|rss|app_store
+name                VARCHAR(100)    -- 展示名，如「定价页」
+url                 VARCHAR(1024)
+render_mode         VARCHAR(10)     -- browser|http（建源时冗余，避免注册表变更后历史数据语义漂移）
+interval_minutes    INT
+enabled             BOOLEAN
+last_crawled_at     DATETIME
+last_status         VARCHAR(10)     -- success|failed
+last_error          TEXT
+fail_count          INT             -- 连续失败次数，达阈值自动停用该源
+created_at          DATETIME
+```
+
+**网页快照表 `page_snapshots`**（一次抓取记录：抓到了什么、有没有变化）
 ```sql
 id              BIGINT PRIMARY KEY AUTO_INCREMENT
 competitor_id   BIGINT
-url             VARCHAR(255)
+source_id       BIGINT         -- 归属监控源（失败记录同样留痕）
+source_type     VARCHAR(30)
+url             VARCHAR(1024)
 raw_html_path   VARCHAR(255)   -- 原始HTML存储路径（文件系统/对象存储）
 clean_text      TEXT           -- 清洗后的正文
 content_hash    VARCHAR(64)    -- 内容哈希，用于快速判断是否变化
+http_status     INT
+is_success      BOOLEAN
+fail_reason     TEXT
+change_detected BOOLEAN        -- 相比上次基准是否变化
+diff_text       TEXT           -- difflib 差异，仅变化时写入
 crawled_at      DATETIME
 ```
+
+> 留痕策略：**首次抓取 / 内容变化 / 抓取失败**三种情况写快照；成功且未变化只刷新 `monitor_sources` 的健康度字段，避免按小时抓取把表撑大。
 
 **情报事件表 `intelligence_events`**
 ```sql
 id              BIGINT PRIMARY KEY AUTO_INCREMENT
 competitor_id   BIGINT
-event_type      ENUM('new_feature','price_change','negative_review_spike','content_update','other')
-summary         TEXT           -- AI生成的摘要
-diff_detail     TEXT           -- 具体变化内容
-confidence      FLOAT          -- AI判断的置信度
-source_snapshot_id  BIGINT     -- 关联的快照
+source_id       BIGINT
+snapshot_id     BIGINT         -- 关联的快照
+event_type      ENUM('new_feature','price_change','content_update','public_sentiment','other')
+title           VARCHAR(255)   -- AI 生成的一句话标题
+summary         TEXT           -- AI 生成的说明
+diff_detail     TEXT           -- 触发本次事件的差异原文
+keywords        JSON
+confidence      FLOAT          -- AI 判断的置信度 0~1
+priority        VARCHAR(10)    -- high|mid|low
 created_at      DATETIME
 ```
 
 **周报表 `weekly_reports`**
 ```sql
-id              BIGINT PRIMARY KEY AUTO_INCREMENT
-user_id         BIGINT
-period_start    DATE
-period_end      DATE
-content         TEXT      -- AI生成的完整周报（Markdown格式）
-event_ids       JSON      -- 本周报关联的事件ID列表
-created_at      DATETIME
+id               BIGINT PRIMARY KEY AUTO_INCREMENT
+user_id          BIGINT
+report_type      VARCHAR(10)    -- weekly|monthly（v1 只生成 weekly）
+title            VARCHAR(255)   -- 如 2026年第37周 竞品周报
+range_start      DATE
+range_end        DATE
+competitor_count INT
+event_count      INT
+summary          TEXT           -- AI 写的核心摘要
+content          TEXT           -- AI 写的周报正文（Markdown）
+payload          JSON           -- 冻结的结构化报表：stats/highlights/分类分布/排行/趋势/关联事件
+created_at       DATETIME
 ```
+
+> 数字与叙述分离：`payload` 里的所有统计都由数据库聚合得出并冻结，LLM 只负责 `summary` / `content` 两段文字，不得编造数字。
 
 **趋势洞察表 `trend_insights`**
 ```sql
-id              BIGINT PRIMARY KEY AUTO_INCREMENT
-competitor_id   BIGINT
-period_start    DATE
-period_end      DATE
-change_frequency JSON      -- 各类型变化的频率统计（如调价次数/月）
-trend_summary   TEXT       -- AI生成的趋势判断文本
-trend_direction ENUM('accelerating','stable','slowing')  -- 变化节奏趋势
-created_at      DATETIME
+id                  BIGINT PRIMARY KEY AUTO_INCREMENT
+competitor_id       BIGINT
+period_days         INT
+direction           ENUM('rising','stable','declining')  -- 变化节奏
+summary             TEXT       -- AI 生成的趋势判断文本
+highlights          JSON       -- 趋势要点
+event_count         INT
+high_impact_count   INT
+coverage_days       INT        -- 有变化的天数
+created_at          DATETIME
 ```
 
 ### 4.2 索引设计要点
@@ -310,30 +352,38 @@ V2 阶段（多Agent协作）：当需要让"抓取Agent""分析Agent""报告Age
 ```
 认证相关
 POST   /api/auth/register          注册
-POST   /api/auth/login             登录，返回JWT
+POST   /api/auth/login             登录，返回 JWT
+GET    /api/auth/me                当前登录用户
 
-竞品管理
-GET    /api/competitors            获取竞品列表
-POST   /api/competitors            新增竞品
-PUT    /api/competitors/{id}       编辑竞品
-DELETE /api/competitors/{id}       删除竞品
+竞品与监控源
+GET    /api/competitors                获取竞品列表（含各竞品的监控源）
+POST   /api/competitors                新增竞品（可一并提交要监控的页面）
+GET    /api/competitors/{competitor_id}           竞品详情
+PATCH  /api/competitors/{competitor_id}           编辑竞品（传了 sources 即按此整份对齐监控源）
+DELETE /api/competitors/{competitor_id}           删除竞品（级联删除其监控源）
+POST   /api/competitors/{competitor_id}/crawl     立即抓取该竞品下所有启用的监控页面
+GET    /api/source-types                          可选的数据源类型目录（口径来自注册表）
 
 情报事件
-GET    /api/events                 获取事件列表（支持按竞品/时间筛选）
-GET    /api/events/{id}            事件详情
+GET    /api/events                 获取事件列表（支持按竞品/类型/天数筛选，返回统计 + 记录）
+GET    /api/events/{event_id}      事件详情（含差异原文）
 
 周报
 GET    /api/reports                获取周报列表
-GET    /api/reports/{id}           周报详情
-POST   /api/reports/generate       手动触发生成周报（调试用）
+GET    /api/reports/{report_id}    周报详情
+POST   /api/reports/generate       手动触发生成周报（定时生成见里程碑 10）
 
 趋势分析
-GET    /api/trends/{competitor_id} 获取某竞品的趋势洞察（变化频率、节奏方向）
+GET    /api/trends/overview                全部竞品汇总的趋势序列（Dashboard 用）
+GET    /api/trends/{competitor_id}         某竞品的趋势洞察（缺省或过期时自动生成一次）
 GET    /api/trends/{competitor_id}/chart   返回趋势图表所需的时间序列数据
 
 实时能力（可选，体验加分项）
 GET    /api/events/stream          SSE，实时推送新检测到的事件
 ```
+
+> 约定：错误的 HTTP 状态码（400/401/404/422…）统一返回 `{code, message, data}` 响应壳，`code` 为与状态码解耦的业务码（如 `40101` 账号或密码错误、`40401` 竞品不存在），前端按 `code` 分流、文案以后端 `message` 为准。
+> 实现提示：`/api/trends/overview` 必须声明在 `/api/trends/{competitor_id}` 之前，否则 `overview` 会被当作 `competitor_id` 解析。
 
 ---
 
@@ -365,6 +415,13 @@ GET    /api/events/stream          SSE，实时推送新检测到的事件
 
 docker-compose.yml 统一管理所有服务，
 本地开发和云端部署用同一套配置，保证环境一致性
+
+落地要点（里程碑 11 已实现，见根目录 `docker-compose.yml`）：
+
+- **入口收口**：只有 Nginx 对外暴露端口，`/api/` 与 `/docs` 反代到后端；MySQL / Redis / 后端只在 compose 内部网络中
+- **建表方式双轨**：开发期应用启动时 `create_all`（`DB_AUTO_CREATE=true`）；生产由后端容器入口执行 `alembic upgrade head`（`DB_AUTO_CREATE=false`），应用不再越权改已上线库的结构。两条路径建出的表结构已验证一致
+- **定时任务是进程内的**：APScheduler 随 FastAPI lifespan 启停（图中独立的「定时任务进程」已合并进 FastAPI 进程）。多副本扩容（`--scale backend=2`）时，各副本通过 `CACHE_BACKEND=redis` 的分布式锁互斥，同一批到期的页面只被一个实例抓取——这正是 Redis 在本方案里的核心用途
+- **缓存抽象**：`core/cache.py` 提供 `MemoryCache`（开发）/ `RedisCache`（生产）两种后端，`CACHE_BACKEND` 一键切换
 ```
 
 ---

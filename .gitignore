@@ -85,3 +85,7 @@ Desktop.ini
 
 # ===== WorkBuddy (AI 助手本地状态/会话/日志) =====
 .workbuddy/
+
+# ===== Local artifacts / AI agent session state =====
+.codex-dashboard-desktop.png
+.codebuddy/plans/

@@ -1,0 +1,27 @@
+# 数据库迁移（Alembic）
+
+开发期应用启动时会自动建表（`DB_AUTO_CREATE=true`，见 `app/core/database.py`）；
+**生产环境请改用它来管理表结构**：
+
+```bash
+cd backend
+alembic upgrade head        # 升级到最新
+alembic current             # 查看当前版本
+alembic history             # 查看历史
+alembic downgrade -1        # 回退一版
+```
+
+改了 `app/models/` 之后生成新迁移：
+
+```bash
+alembic revision --autogenerate -m "add xxx field"
+# ⚠️ 生成后务必打开文件核对，autogenerate 不会识别重命名、且可能误判默认值
+```
+
+## 约定
+
+- 连接串来自 `backend/.env` 的 `DB_URL`（`migrations/env.py` 里读取），
+  `alembic.ini` 中**不重复写一份**，避免迁移与应用操作的不是同一个库。
+- 初始迁移 `0001_initial_schema` 与 `Base.metadata.create_all` 的结果一致，
+  两条路径（开发 / 生产）建出来的表结构相同。
+- SQLite 的 `ALTER TABLE` 能力有限，`env.py` 已开启 `render_as_batch=True`。

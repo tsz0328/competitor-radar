@@ -11,6 +11,16 @@ pydantic-settings>=2.0
 httpx>=0.27
 trafilatura>=1.12
 feedparser>=6.0
+# SPA 页面渲染兜底；装完还需执行 `playwright install chromium` 下载内核
+playwright>=1.47
+
+# ---- 任务调度（里程碑 10）----
+apscheduler>=3.10,<4
+
+# ---- 部署（里程碑 11）----
+alembic>=1.13            # 生产用迁移而非 create_all
+aiomysql>=0.2            # 生产切 MySQL 时的异步驱动
+redis>=5.0               # CACHE_BACKEND=redis 时使用
 
 # ---- 开发工具 ----
 ruff>=0.6

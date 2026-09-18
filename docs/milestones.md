@@ -1,4 +1,4 @@
-# AI 竞品情报雷达 — 里程碑计划（Milestones）
+# 竞品雷达 — 里程碑计划（Milestones）
 
 > 版本：v1.2　作者：唐思哲　更新日期：2026-07-19
 > 配套文档：`README.md` / `docs/architecture.md`（技术方案）/ `docs/page-design.md`（首页设计）
@@ -28,7 +28,7 @@
 ## 一、目标目录结构
 
 ```text
-AI-COMPETITOR-RADAR
+竞品雷达
 ├── backend/
 │   ├── app/
 │   │   ├── __init__.py
@@ -156,6 +156,7 @@ AI-COMPETITOR-RADAR
 - [x] **3.5 安全**：`core/security.py` 密码 bcrypt 哈希（`hash_password` / `verify_password`）+ JWT 签发/校验（`create_access_token` / `decode_access_token`）。
 - [x] **3.6 数据模型**：已落地 3 张表并通过 SQLite 验证 —— `models/user.py`（`users`）、`models/competitor.py`（`competitors`）、`models/source.py`（`monitor_sources`）；`models/base.py` 提供 `Base` / `BigIntPK`（`with_variant` 解决 SQLite 自增）/ `enum_values`（枚举存 `.value`）/ `TimestampMixin`。**其余 4 张表（page_snapshots / intelligence_events / weekly_reports / trend_insights）随里程碑 6-8 补齐**，建表时严格遵守"DB 无关要点"与 `docs/data-source-design.md`。
   - 配套：`core/source_registry.py` 数据源注册表（8 种 v1 类型：`RenderMode` / `SourceType` / `SourceTypeConfig`）—— 爬虫模块的唯一策略来源，也是 v2 新增数据源的扩展点。
+- [x] **3.6 补充**：其余 4 张表已在里程碑 6-8 全部落地，连同原有 3 张共 **7 张表**（`users` / `competitors` / `monitor_sources` / `page_snapshots` / `intelligence_events` / `weekly_reports` / `trend_insights`），全部遵守 DB 无关要点（BigInteger 自增、JSON 用 `sqlalchemy.JSON`、枚举 `native_enum=False` 存 VARCHAR、时间 `DateTime(timezone=True)` + `server_default=func.now()`）。
 - [x] **3.7 Schemas**：`schemas/user.py`（`UserCreate` / `UserOut` / `UserLogin` / `TokenOut`），后续按业务模块扩展。
 - [x] **3.8 运行验证**：`uvicorn app.main:app --reload --reload-dir app` 启动正常，`/docs` 可访问，`dev.db` 与 `users` 表自动生成。
 
@@ -178,48 +179,53 @@ AI-COMPETITOR-RADAR
 
 ### 里程碑 5：竞品管理模块
 - [x] **5.1 后端**：`api/competitors.py` 已实现 `POST /api/competitors`（201）、`GET /api/competitors`、`GET/PATCH/DELETE /api/competitors/{id}`（删除 204）；全部经 `api/deps.py` 的 `get_current_user` 鉴权，并按 `user_id` 隔离（查不到/不属于自己一律 404）。已在 `/docs` 验证，并用第二个账号验证数据隔离（返回 `[]`）。
-- [ ] **5.2 前端**：`api/competitorApi.ts` + `store/competitor.ts` + `views/Competitors.vue`（CRUD + 配置监控 URL/频率）。
-- [ ] **验收**：前端能增删改查竞品，数据来自后端。
+- [x] **5.2 前端**：`api/competitor.ts` + `stores/competitor.ts` + `views/app/Competitor.vue` 已实现列表/网格双视图、搜索与筛选、分页、新增/编辑弹窗（含监控源勾选、URL 智能预填、logo 预览）、删除二次确认、监控开关、图标多级回退（favicon → apple-touch-icon → 首字母头像），全部走真实后端。
+- [x] **验收**：前端可增删改查竞品，数据来自后端并按用户隔离。
 
 ### 里程碑 6：爬虫采集模块
-- [ ] **6.1 爬虫服务**：`services/crawler.py` Playwright 访问 URL，trafilatura 提取正文，去噪。
-- [ ] **6.2 快照存储**：写 `page_snapshots`，算 `content_hash`，存 `clean_text`（原始 HTML 存 `backend/storage/`，已加入 `.gitignore`）。
-- [ ] **6.3 Diff 比对**：与上次快照 hash 比对；变化则存 diff 文本（difflib）。
-- [ ] **6.4 手动触发接口**：`POST /api/competitors/{id}/crawl`。
-- [ ] **6.5 失败重试/频率控制**：随机延迟、重试、UA 设置。
-- [ ] **验收**：加竞品→手动抓取→`page_snapshots` 有记录；再次抓未变则无新快照/无新事件。
+- [x] **6.1 爬虫服务**：`services/crawler.py` 用 httpx 抓取，按注册表 `extractor` 分派提取（trafilatura 优先、内置解析兜底、RSS 走 feedparser），并做空白归一化去噪。SPA 页面由 `services/browser.py` 兜底：`fetch_auto` 先走 httpx 试探（静态页毫秒级返回、不碰浏览器），拿不到有效正文才用 Chromium 渲染（单例 context 复用、懒启动、屏蔽图片/字体）。实测豆包首页 19 字 → 450 字，deepseek.com 静态路径仍 413ms 不受影响。
+- [x] **6.2 快照存储**：写 `page_snapshots`，算 `content_hash`，存 `clean_text`（原始 HTML 存 `backend/storage/`，已加入 `.gitignore`，可用 `SAVE_RAW_HTML=false` 关闭）。
+- [x] **6.3 Diff 比对**：与上次成功快照的 hash 比对；变化则存 difflib 差异文本。
+- [x] **6.4 手动触发接口**：`POST /api/competitors/{id}/crawl`，逐源返回成功/失败/是否变化/耗时。
+- [x] **6.5 失败处理**：UA 设置、超时控制；失败记 `fail_count` 与 `last_error`，连续失败达阈值（默认 5）自动停用该源，编辑保存可恢复。**随机延迟与重试待补**。
+- [x] **验收**：加竞品→手动抓取→`page_snapshots` 有记录；再次抓未变则不新增快照、不产生事件（已实测）。
 
 ### 里程碑 7：AI 分析模块（事件）
-- [ ] **7.1 LLM 抽象**：`core/llm.py` `LLMClient`；有 Key 走 API（DeepSeek/通义/OpenAI 兼容），无 Key 走 Mock 规则生成合理文本。
-- [ ] **7.2 事件分类+摘要**：`services/analyzer.py` 用 Diff 粗筛→只对显著变化调 LLM→写 `intelligence_events`（type/summary/confidence）。
-- [ ] **7.3 接口**：`api/events.py` 列表/详情 + SSE 实时推送（可选）。
-- [ ] **验收**：抓到变化页面后事件有记录（Mock 也能生成摘要）。
+- [x] **7.1 LLM 抽象**：`core/llm.py` `LLMClient`；有 Key 走 OpenAI 兼容 API，无 Key 走规则 Mock（当前 `LLM_ENABLED=false`，走 Mock 分支）。
+- [x] **7.2 事件分类+摘要**：`services/analyzer.py` 先用差异行数粗筛（低于阈值只留快照、不打扰用户）→ 调 LLM → 写 `intelligence_events`（type/title/summary/keywords/confidence/priority）。
+- [x] **7.3 接口**：`api/events.py` 列表（统计 + 记录）/详情；**SSE 实时推送未做**（可选项目）。
+- [x] **验收**：抓到变化页面后事件有记录，Mock 也能生成摘要（已实测）。
 
 ### 里程碑 8：趋势分析与周报
-- [ ] **8.1 趋势分析**：`services/trend.py` 聚合历史事件统计→LLM 趋势判断→`trend_insights`。
-- [ ] **8.2 周报生成**：`services/report.py` 聚合一周事件→LLM 周报（Markdown）→`weekly_reports`。
-- [ ] **8.3 接口**：`/api/trends/{id}`、`/api/trends/{id}/chart`、`/api/reports`、`/api/reports/generate`。
-- [ ] **验收**：`trends` / `reports` API 返回数据。
+- [x] **8.1 趋势分析**：`services/trend.py` 聚合历史事件为日序列（缺口补 0）→ LLM 趋势判断 → `trend_insights`，并对洞察做 24 小时缓存复用。
+- [x] **8.2 周报生成**：`services/report.py` 聚合一周事件（含环比、分类分布、竞品排行、高影响趋势、重点变化、关联事件）→ LLM 写摘要与 Markdown 正文 → `weekly_reports`。数字全部来自数据库聚合，AI 只负责叙述。
+- [x] **8.3 接口**：`/api/trends/overview`、`/api/trends/{id}`、`/api/trends/{id}/chart`、`/api/reports`、`/api/reports/{id}`、`/api/reports/generate`。
+- [x] **验收**：`trends` / `reports` API 返回数据（已实测）。
 
 ### 里程碑 9：前端业务页面
-- [ ] **9.1 首页完善**：按 `page-design.md` 实现 Navbar/Hero/Features/Workflow/Preview/Footer。
-- [ ] **9.2 Dashboard**：统计卡片 + ECharts 趋势图（封装 `TrendChart` 组件）。
-- [ ] **9.3 竞品管理页**：接里程碑 5 的接口与页面。
-- [ ] **9.4 事件流**：时间轴 `EventCard` 复用。
-- [ ] **9.5 周报/趋势页**：历史回看。
-- [ ] **9.6 后台布局**：`layouts/AppLayout.vue`（侧边栏 + 菜单）。
-- [ ] **验收**：前后端联调，事件流、趋势图、周报均可视。
+- [x] **9.1 首页 Landing**：Navbar / Hero / Features / Workflow / Preview / Footer 均已实现，文案已对齐「监控竞品官网与公开数据源」定位。
+- [x] **9.2 Dashboard**：统计卡片与「最新情报事件」接真实接口（`/api/events`、`/api/competitors`），趋势图用 `TrendChart` 组件 + `/api/trends/overview`。
+- [x] **9.3 竞品管理页**：见里程碑 5.2。
+- [x] **9.4 事件流**：时间轴 + 顶部类型统计 + 筛选（关键字 / 分类 / 竞品 / 优先级 / 置信度 / 日期）+ 详情抽屉 `components/EventDetailDrawer.vue`（与 Dashboard 共用）。
+- [x] **9.5 周报/趋势页**：周报列表与详情接真实数据并支持手动生成；趋势页为「竞品维度图表 + 趋势洞察」。
+- [x] **9.6 后台布局**：`layouts/AppLayout.vue`（侧边栏 + 菜单）。
+- [x] **验收**：前后端联调完成，竞品管理、事件流、周报、趋势均可视且数据来自后端。
+- [ ] **遗留**：周报正文（Markdown）尚未在前端渲染；事件页筛选目前是客户端过滤（未下推到接口分页）。
 
 ### 里程碑 10：任务调度与推送
-- [ ] **10.1 APScheduler 集成**：按竞品频率错峰定时抓取（进程内，不引 Celery）。
-- [ ] **10.2 邮件推送（可选）**：SMTP 配置，异动/周报推送。
-- [ ] **验收**：启动后自动按频率抓取并产生事件。
+- [x] **10.1 APScheduler 集成**：`services/scheduler.py` 进程内调度，不引 Celery。采用**「一个 tick 扫描到期任务」**而不是「给每个源注册一个 job」——监控源随时增删改（换频率/停用/换 URL）都能"下一分钟"自动生效，无需任何重注册逻辑。两个 job：`crawl_due_sources`（按各源 `interval_minutes` 到期抓取，单次上限 `SCHEDULER_BATCH_LIMIT`，同批温和错峰）、`generate_weekly_reports`（每周一 06:00 自动生成周报，同一窗口已生成则跳过）。由 lifespan 启动、关闭时优雅停止。
+- [x] **10.2 通知推送（可选）**：`services/notifier.py`，默认关闭（`NOTIFY_ENABLED=false`）；开启后可选 `log`（仅写日志，零依赖）或 `smtp`（邮件）后端。推送是**旁路**——发送失败只记 warning，绝不影响抓取与周报生成；正文只含统计与标题，不含页面正文。
+- [x] **10.3 观测能力**：`GET /api/scheduler` 返回调度器是否在跑、各 job 下次执行时间、当前到期待抓的源数量；竞品接口新增 `nextCrawlAt`（即将抓取 / 明天 08:00 / 已暂停），前端列表与卡片同步展示——否则用户看不出系统已在自动监控。
+- [x] **验收**：启动后 APScheduler 自行按 tick 触发（实测 7 秒内触发 3 次），到期的源被自动抓取并落快照；未到间隔不重复抓；调度器启停干净。
+- [ ] **遗留**：`notify_backend=smtp` 的真实发信未实测（需真实 SMTP 账号）；通知目前只有"抓取发现变化"与"周报已生成"两类，未做单条事件级别的即时推送。
 
 ### 里程碑 11：Docker 部署与打磨
-- [ ] **11.1 Alembic 迁移**：生产用迁移而非 `create_all`。
-- [ ] **11.2 docker-compose**：FastAPI + MySQL + Redis + Nginx + 前端静态，统一一套配置。
-- [ ] **11.3 README/架构图/文档完善**。
-- [ ] **验收**：`docker-compose up` 一键起全部。
+- [x] **11.1 Alembic 迁移**：`alembic.ini` + `migrations/`（异步 env；连接串复用应用配置，不在 ini 里再写一份）。初始迁移与 `Base.metadata.create_all` 建出的表结构**逐表逐列比对一致**；存量库用 `alembic stamp head` 接入（只写版本表，不动数据）。新增 `DB_AUTO_CREATE` 开关：开发期 `create_all`，生产走迁移。
+- [x] **11.2 docker-compose**：`mysql:8.4` + `redis:7` + `backend`(uvicorn) + `frontend`(Nginx 托管静态 + `/api`、`/docs` 反代)。**只有 Nginx 暴露端口**；MySQL/Redis 带 healthcheck，后端 `depends_on: service_healthy`，容器入口先迁移（带重试）再启动，并把 CRLF 统一转 LF 防 Windows 检出导致容器起不来。
+- [x] **11.3 缓存抽象补齐**（里程碑 3.4 遗留）：`core/cache.py` 提供 `MemoryCache` / `RedisCache`，`CACHE_BACKEND` 一键切换；调度任务套 **Redis 分布式锁**（`SET NX EX` + 令牌释放），`--scale backend=2` 时同一批页面只被一个副本抓取。
+- [x] **11.4 README/架构图/文档完善**：README 新增一键部署章节与生产要点；architecture.md 部署架构补充落地要点。
+- [ ] **验收**：`docker-compose up` 一键起全部。**⚠️ 本机未装 Docker，未能实际执行**。已验证：迁移与 `create_all` 建表一致、compose YAML 合法、入口脚本为纯 LF 且 if/fi 配平、前端 `npm run build` 可过、生产启动路径（关自动建表 → 迁移 → 启动）端到端可用。在有 Docker 的机器上跑一次 compose 即为最后一步。
+- [ ] **遗留**：`RedisCache` 未连真实 Redis 实例验证（本机无 Redis）；前端构建产物单 chunk 1.75MB，可做代码分割。
 
 ---
 
@@ -245,7 +251,7 @@ class Cache(Protocol):
 
 ## 五、执行建议
 
-1. 当前位于**里程碑 3（后端脚手架，剩 3.2 配置层 / 3.4 缓存抽象）→ 里程碑 4（用户认证，后端已通、待前端联动）**。
+1. 当前进度：**里程碑 1-11 已完成**（文档与抽象 → 后端脚手架 → 认证 → 竞品管理 → 采集 → 事件 → 趋势与周报 → 前端业务页 → 任务调度 → 部署），Playwright 渲染兜底也已补齐（SPA 官网可正常抓取）。唯一未实际执行的是 `docker compose up`（本机无 Docker；部署件已就绪并做了本地等价验证，见里程碑 11 验收项）。仍挂着的技术债：`RedisCache` 未连真实 Redis 验证、前端代码分割、SMTP 真实发信。
 2. 每完成一个里程碑，用"完成标志"核对，跑通再进下一个。
 3. 建议按"认证→竞品→采集→AI→趋势/周报→前端业务页"的顺序端到端推进，每个模块都做前后端联调。
 4. 阶段一的最小可运行闭环（登录 + 竞品列表）是后续一切的前提，优先打磨稳定。

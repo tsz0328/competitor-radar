@@ -1,0 +1,93 @@
+# 一键起全部（里程碑 11）：MySQL + Redis + FastAPI 后端 + Nginx(前端静态 + /api 反代)
+#
+# 用法：
+#   cp .env.example .env      # 可选：改掉默认密码与密钥
+#   docker compose up --build
+# 然后访问 http://localhost:8080（前端），http://localhost:8080/docs（接口文档）
+#
+# 设计说明：
+# - **只有前端容器对外暴露端口**。MySQL/Redis/后端都只在 compose 内部网络里，
+#   外面摸不到，比"全部暴露端口再靠防火墙挡"安全得多。
+# - 后端可横向扩容：`docker compose up --scale backend=2`。多个副本会争抢
+#   同一把 Redis 锁（CACHE_BACKEND=redis，见 app/core/cache.py），
+#   同一批到期的监控页面只会被一个副本抓取，不会重复。
+# - 表结构由后端容器入口的 `alembic upgrade head` 管理（DB_AUTO_CREATE=false），
+#   配合 MySQL 的 healthcheck（depends_on: service_healthy），启动顺序不会乱。
+name: competitor-radar
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-acr_change_me_root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-competitor_radar}
+      MYSQL_USER: ${MYSQL_USER:-acr}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-acr_change_me}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD
+        - mysqladmin
+        - ping
+        - -h
+        - 127.0.0.1
+        - -uroot
+        - -p${MYSQL_ROOT_PASSWORD:-acr_change_me_root}
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # 开 AOF：锁/缓存在容器重启后不丢
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    environment:
+      # 生产三件套：MySQL 连接串 + 关掉自动建表 + Redis 做分布式锁
+      DB_URL: mysql+aiomysql://${MYSQL_USER:-acr}:${MYSQL_PASSWORD:-acr_change_me}@mysql:3306/${MYSQL_DATABASE:-competitor_radar}?charset=utf8mb4
+      DB_AUTO_CREATE: "false"
+      CACHE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/0
+      NOTIFY_ENABLED: ${NOTIFY_ENABLED:-false}
+      NOTIFY_BACKEND: ${NOTIFY_BACKEND:-log}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_SENDER: ${SMTP_SENDER:-}
+      NOTIFY_RECIPIENTS: ${NOTIFY_RECIPIENTS:-}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      # 同源部署下浏览器请求都是走 Nginx 反代的 /api，这里的 CORS 只是兜底
+      CORS_ORIGINS: '["http://localhost:8080"]'
+      STORAGE_DIR: /app/storage
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  redis-data:
