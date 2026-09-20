@@ -16,7 +16,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.event_types import EVENT_TYPE_LABELS, EventType
-from app.core.runtime_config import get_llm_config
+from app.core.runtime_config import LLMConfig
 from app.core.source_registry import SourceType, get_source_config
 
 logger = logging.getLogger(__name__)
@@ -518,13 +518,14 @@ class LLMClient:
     统一约定：AI 只负责"把事实翻译成人话"，所有数字统计都由调用方从数据库算好传进来。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, cfg: LLMConfig) -> None:
         self.settings = get_settings()
+        # 当前用户自己的配置（按用户解析后传进来），不再依赖任何全局单例
+        self.cfg = cfg
 
     @property
     def enabled(self) -> bool:
-        # 读运行时配置：设置页保存后无需重启即可生效
-        return get_llm_config().ready
+        return self.cfg.ready
 
     async def classify_and_summarize(
         self,
@@ -718,7 +719,7 @@ class LLMClient:
         )
 
     async def _chat_json(self, prompt: str, system: str = _SYSTEM_PROMPT) -> dict:
-        cfg = get_llm_config()
+        cfg = self.cfg
         base = cfg.base_url.rstrip("/")
         headers = {
             "Authorization": f"Bearer {cfg.api_key}",
@@ -758,13 +759,15 @@ class LLMClient:
         return json.loads(_strip_code_fence(content))
 
 
-@lru_cache
-def get_llm_client() -> LLMClient:
-    """全局单例（配置只读一次）。"""
-    client = LLMClient()
-    if client.enabled:
-        cfg = get_llm_config()
-        logger.info("LLM 已启用真实模型：%s @ %s", cfg.model, cfg.base_url)
-    else:
-        logger.info("LLM 未配置 Key，使用规则 Mock 兜底（可在「设置」页配置模型）")
-    return client
+@lru_cache(maxsize=128)
+def _client_for(cfg: LLMConfig) -> LLMClient:
+    """按配置缓存客户端（LLMConfig 是 frozen dataclass，可直接做缓存键）。"""
+    return LLMClient(cfg)
+
+
+def get_llm_client(cfg: LLMConfig) -> LLMClient:
+    """取「该用户配置」对应的 LLM 客户端。
+
+    调用方负责先按 user_id 解析出自己的 LLMConfig（services.settings.get_user_llm_config）。
+    """
+    return _client_for(cfg)

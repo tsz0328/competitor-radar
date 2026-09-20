@@ -1,7 +1,7 @@
 import enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Enum, ForeignKey, String, Text
+from sqlalchemy import BigInteger, Enum, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, BigIntPK, TimestampMixin, enum_values
@@ -30,7 +30,6 @@ class Competitor(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(100), nullable=False)  # 如 Notion
     official_url: Mapped[str | None] = mapped_column(String(255))  # 官网地址
     category: Mapped[str | None] = mapped_column(String(50))  # 如 协作办公
-    description: Mapped[str | None] = mapped_column(Text)  # 一句话描述
     status: Mapped[CompetitorStatus] = mapped_column(
         Enum(CompetitorStatus, native_enum=False, length=10, values_callable=enum_values),
         default=CompetitorStatus.ACTIVE,

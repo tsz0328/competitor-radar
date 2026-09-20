@@ -19,6 +19,7 @@ import httpx
 
 from app.core.config import BACKEND_DIR, get_settings
 from app.core.http_errors import explain_http_status
+from app.core.network import validate_remote_url
 from app.core.source_registry import RenderMode, SourceTypeConfig
 from app.services import browser
 
@@ -109,6 +110,11 @@ async def fetch_html(
     timeout 可覆盖默认抓取超时（例如「校验网址」场景想用更短的等待）。
     """
     start = time.perf_counter()
+    validation = await validate_remote_url(url)
+    if not validation.ok:
+        return FetchResult(
+            ok=False, url=url, error=validation.message, elapsed_ms=_ms(start)
+        )
     max_retries = max(0, settings.crawl_retry_count if retry_count is None else retry_count)
     retry_base = (
         settings.crawl_retry_base_seconds
@@ -134,6 +140,15 @@ async def fetch_html(
                 },
             ) as client:
                 response = await client.get(url)
+                final_validation = await validate_remote_url(str(response.url))
+                if not final_validation.ok:
+                    return FetchResult(
+                        ok=False,
+                        url=str(response.url),
+                        error=final_validation.message,
+                        elapsed_ms=_ms(start),
+                        attempts=attempt + 1,
+                    )
         except httpx.HTTPError as exc:
             last_error = _clean_error(f"请求失败：{type(exc).__name__}: {exc}")
             if attempt < max_retries:

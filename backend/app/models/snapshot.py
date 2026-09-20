@@ -37,7 +37,7 @@ class PageSnapshot(Base):
     # 归属：查历史时按 competitor 聚合，按 source 定位到"哪个页面变了"
     competitor_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     source_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("monitor_sources.id"), nullable=True
+        BigInteger, ForeignKey("monitor_sources.id", ondelete="SET NULL"), nullable=True
     )
     source_type: Mapped[SourceType | None] = mapped_column(
         Enum(SourceType, native_enum=False, length=30, values_callable=enum_values)

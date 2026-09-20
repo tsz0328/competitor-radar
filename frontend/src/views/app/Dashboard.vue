@@ -10,7 +10,7 @@ import InfoTrendChart from "@/components/Charts/InfoTrendChart.vue";
 import { fetchDailyTrend } from "@/api/trend";
 import { fetchEventList } from "@/api/event";
 import type { DailyCount } from "@/types/trend";
-import { Monitor, List, Warning, DataLine } from "@element-plus/icons-vue";
+import { Monitor, List, Warning, WarningFilled } from "@element-plus/icons-vue";
 
 const router = useRouter();
 const eventStore = useEventStore();
@@ -53,9 +53,25 @@ async function loadTrendDist() {
   }
 }
 
+// 今日日期（自然日）：卡片统计与钻取跳转都用这一个口径，保证两边数字能对上
+function formatIsoDate(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+const todayIso = formatIsoDate(new Date());
+
 // 点击趋势图某天 → 去情报中心并筛选该日
 function onSelectTrendDate(dateIso: string) {
   router.push({ name: "Event", query: { date: dateIso } });
+}
+
+// 点击某个竞品 → 看它今天发生了什么
+function openCompetitorEvents(competitorId: number) {
+  router.push({
+    name: "Event",
+    query: { competitorId: String(competitorId), date: todayIso },
+  });
 }
 
 // 工作台只关心「今天」：各模块各自加载，互不阻塞（卡片分别显示加载态）
@@ -63,7 +79,12 @@ const trendLoading = ref(false);
 
 onMounted(async () => {
   await Promise.allSettled([
-    eventStore.loadEventList({ days: 1, limit: 200 }),
+    // 用自然日区间而不是滚动 24 小时：跳转到情报中心后，数字与卡片一致
+    eventStore.loadEventList({
+      startDate: todayIso,
+      endDate: todayIso,
+      limit: 200,
+    }),
     competitorStore.loadCompetitors(),
     eventStore.loadDailyInsight(1),
     (async () => {
@@ -77,7 +98,8 @@ onMounted(async () => {
   ]);
 });
 
-function goTo(name: string, query?: Record<string, string>) {
+// query 与 vue-router 的 LocationQueryRaw 口径一致，允许 undefined（指标卡里部分卡片无筛选）
+function goTo(name: string, query?: Record<string, string | undefined>) {
   router.push({ name, query });
 }
 
@@ -86,7 +108,10 @@ const todaySummary = computed(() => eventStore.eventList?.summary);
 const todayTotal = computed(() => todaySummary.value?.total ?? 0);
 const todayHigh = computed(() => todaySummary.value?.high ?? 0);
 
-const displayName = computed(() => authStore.user?.name || "用户");
+// 招呼语用昵称（用户中心里设置）；没设置昵称时回退显示账号
+const displayName = computed(
+  () => authStore.user?.name || authStore.user?.username || "用户",
+);
 const greeting = computed(() => {
   const hour = new Date().getHours();
   if (hour < 6) return "夜深了";
@@ -108,10 +133,8 @@ const monitorPageCount = computed(() =>
   ),
 );
 
-// 今日有变化的竞品数（按今日事件去重竞品）
-const activeCompetitorCount = computed(
-  () => new Set(todayRecords.value.map((r) => r.competitorId)).size,
-);
+// 今日舆论动态条数：负面舆情是工作台此前完全没有入口的信息盲区
+const todayNegative = computed(() => todaySummary.value?.negative ?? 0);
 
 // 四个指标回答「今天系统运行得怎么样」，不做深入分析
 const statCards = computed(() => [
@@ -129,11 +152,11 @@ const statCards = computed(() => [
     key: "today",
     title: "今日情报",
     value: todayTotal.value,
-    desc: "过去 24 小时",
+    desc: "今天累计",
     icon: List,
     cls: "icon-purple",
     route: "Event",
-    query: undefined,
+    query: { date: todayIso },
   },
   {
     key: "focus",
@@ -143,17 +166,18 @@ const statCards = computed(() => [
     icon: Warning,
     cls: "icon-orange",
     route: "Event",
-    query: { priority: "high" },
+    query: { date: todayIso, priority: "high" },
   },
   {
-    key: "active",
-    title: "活跃竞品",
-    value: activeCompetitorCount.value,
-    desc: "今日有变化",
-    icon: DataLine,
-    cls: "icon-green",
+    // 「活跃竞品」的信息在下方"竞品动态"区块已逐条列全，卡片改为工作台此前没有的舆情风险入口
+    key: "risk",
+    title: "风险提醒",
+    value: todayNegative.value,
+    desc: "今日舆论动态",
+    icon: WarningFilled,
+    cls: "icon-red",
     route: "Event",
-    query: undefined,
+    query: { date: todayIso, category: "negative" },
   },
 ]);
 
@@ -226,7 +250,7 @@ function onSelectRelated(id: number) {
         <div class="subtitle">今天是 {{ todayText }}</div>
       </div>
       <div class="header-overview">
-        过去 24 小时，系统发现
+        今天发现
         <b>{{ todayTotal }}</b> 条新情报，其中
         <b class="em">{{ todayHigh }}</b> 条值得重点关注
       </div>
@@ -261,116 +285,19 @@ function onSelectRelated(id: number) {
       </div>
     </section>
 
-    <!-- 趋势导航图 + AI 今日洞察 -->
-    <section class="overview-row">
-      <div class="card trend-card">
-        <header class="card-head">
-          <div class="card-title">近 30 天情报变化趋势</div>
-          <div class="card-hint">点击某一天，查看当天情报</div>
-        </header>
-        <div class="trend-body" v-loading="trendLoading">
-          <InfoTrendChart
-            :data="dailyTrend"
-            height="220px"
-            @select="onSelectTrendDate"
-          />
-          <div v-if="trendDist.length" class="dist-strip">
-            <div v-for="d in trendDist" :key="d.key" class="dist-mini">
-              <span class="dist-mini-label">{{ d.label }}</span>
-              <div class="dist-mini-bar">
-                <i :style="{ width: `${d.percent}%` }" />
-              </div>
-              <span class="dist-mini-value">{{ d.value }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card insight">
-        <header class="card-head">
-          <div class="card-title">AI 今日洞察</div>
-          <span v-if="insight && !insight.fromLlm" class="insight-badge">规则</span>
-        </header>
-        <div class="insight-body" v-loading="eventStore.dailyInsightLoading">
-          <template v-if="insight">
-            <p class="insight-summary">{{ insight.summary }}</p>
-            <ul v-if="insight.highlights.length" class="insight-points">
-              <li v-for="(point, index) in insight.highlights" :key="index">
-                {{ point }}
-              </li>
-            </ul>
-            <div class="insight-foot">
-              <span class="insight-scope">
-                {{ insight.periodText }} · 涉及 {{ insight.competitorCount }} 个竞品
-              </span>
-              <el-button class="card-button" link @click="goTo('Event')"
-                >查看相关情报</el-button
-              >
-            </div>
-          </template>
-          <div v-else-if="!eventStore.dailyInsightLoading" class="empty-hint">
-            暂无洞察内容
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- 今日重要情报 -->
-    <section class="card focus-main">
-      <header class="card-head">
-        <div class="card-title">今日重要情报</div>
-        <el-button
-          class="card-button"
-          link
-          @click="goTo('Event', { priority: 'high,mid' })"
-          >查看更多</el-button
-        >
-      </header>
-      <div class="focus-list" v-loading="eventStore.listLoading">
-        <div
-          v-for="event in focusEvents"
-          :key="event.id"
-          class="focus-item"
-          @click="openDetail(event.id)"
-        >
-          <CompetitorLogo
-            class="focus-logo"
-            :name="event.brand"
-            :domain="event.domain"
-            :src="event.logoUrl"
-            :size="44"
-          />
-          <div class="focus-body">
-            <div class="focus-title-row">
-              <div class="focus-title">{{ event.title }}</div>
-              <span class="event-tag" :class="event.tagType">{{ event.tag }}</span>
-              <span class="focus-ago">{{ event.ago }}</span>
-            </div>
-            <div class="focus-summary">{{ event.summary || event.desc }}</div>
-          </div>
-        </div>
-        <div
-          v-if="!focusEvents.length && !eventStore.listLoading"
-          class="empty-hint"
-        >
-          今天暂无需要重点关注的变化
-        </div>
-      </div>
-    </section>
-
-    <!-- 竞品动态：最近哪个竞品比较活跃 -->
+    <!-- 竞品动态：最近哪个竞品比较活跃；有变化的可点进它今天的情报 -->
     <section class="card dynamics">
       <header class="card-head">
         <div class="card-title">竞品动态</div>
-        <el-button class="card-button" link @click="goTo('Competitor')"
-          >查看全部</el-button
-        >
+        <div class="card-hint">点击有变化的竞品，查看它今天的情报</div>
       </header>
       <div class="dynamics-list" v-loading="competitorStore.loading">
         <div
           v-for="item in competitorDynamics"
           :key="item.id"
           class="dyn-item"
+          :class="{ 'is-clickable': item.todayCount > 0 }"
+          @click="item.todayCount > 0 && openCompetitorEvents(item.id)"
         >
           <CompetitorLogo
             class="dyn-logo"
@@ -394,22 +321,96 @@ function onSelectRelated(id: number) {
       </div>
     </section>
 
-    <!-- 情报中心入口：想看具体发生了什么，往下钻 -->
-    <section class="card center-entry">
-      <div class="entry-left">
-        <div class="entry-title">情报中心</div>
-        <div class="entry-desc">
-          今日已收录 {{ todayTotal }} 条情报<template v-if="categoryChips.length"
-            >：</template
-          >
-          <span v-for="chip in categoryChips" :key="chip.key" class="entry-chip">
-            {{ chip.label }} {{ chip.value }}
-          </span>
+    <!-- 趋势导航图：只做导航，点某天钻取到情报中心 -->
+    <section class="card trend-card">
+      <header class="card-head">
+        <div class="card-title">近 30 天情报变化趋势</div>
+        <div class="card-hint">点击某一天，查看当天情报</div>
+      </header>
+      <div class="trend-body" v-loading="trendLoading">
+        <InfoTrendChart
+          :data="dailyTrend"
+          height="220px"
+          @select="onSelectTrendDate"
+        />
+        <div v-if="trendDist.length" class="dist-strip">
+          <div v-for="d in trendDist" :key="d.key" class="dist-mini">
+            <span class="dist-mini-label">{{ d.label }}</span>
+            <div class="dist-mini-bar">
+              <i :style="{ width: `${d.percent}%` }" />
+            </div>
+            <span class="dist-mini-value">{{ d.value }}</span>
+          </div>
         </div>
       </div>
-      <el-button class="entry-button" type="primary" @click="goTo('Event')">
-        查看全部情报
-      </el-button>
+    </section>
+
+    <!-- 今日要点：左侧 AI 结论（怎么看），右侧证据列表（凭什么）；点条目看详情 -->
+    <section class="card focus-main">
+      <header class="card-head">
+        <div class="card-title">今日要点</div>
+        <div class="card-hint">AI 结论 + 值得关注的原文变化</div>
+      </header>
+      <div class="focus-grid">
+        <div class="focus-insight" v-loading="eventStore.dailyInsightLoading">
+          <div class="insight-head">
+            <span class="insight-title">AI 结论</span>
+            <span v-if="insight && !insight.fromLlm" class="insight-badge">规则</span>
+          </div>
+          <template v-if="insight">
+            <p class="insight-summary">{{ insight.summary }}</p>
+            <ul v-if="insight.highlights.length" class="insight-points">
+              <li v-for="(point, index) in insight.highlights" :key="index">
+                {{ point }}
+              </li>
+            </ul>
+            <div class="insight-scope">
+              {{ insight.periodText }} · 涉及 {{ insight.competitorCount }} 个竞品
+            </div>
+          </template>
+          <div v-else-if="!eventStore.dailyInsightLoading" class="empty-hint">
+            暂无洞察内容
+          </div>
+        </div>
+
+        <div class="focus-list" v-loading="eventStore.listLoading">
+          <div
+            v-for="event in focusEvents"
+            :key="event.id"
+            class="focus-item"
+            @click="openDetail(event.id)"
+          >
+            <CompetitorLogo
+              class="focus-logo"
+              :name="event.brand"
+              :domain="event.domain"
+              :src="event.logoUrl"
+              :size="44"
+            />
+            <div class="focus-body">
+              <div class="focus-title-row">
+                <div class="focus-title">{{ event.title }}</div>
+                <span class="event-tag" :class="event.tagType">{{ event.tag }}</span>
+                <span class="focus-ago">{{ event.ago }}</span>
+              </div>
+              <div class="focus-summary">{{ event.summary || event.desc }}</div>
+            </div>
+          </div>
+          <div
+            v-if="!focusEvents.length && !eventStore.listLoading"
+            class="empty-hint"
+          >
+            今天暂无需要重点关注的变化
+          </div>
+        </div>
+      </div>
+
+      <div v-if="categoryChips.length" class="chips-row">
+        <span class="chips-label">今日分布</span>
+        <span v-for="chip in categoryChips" :key="chip.key" class="entry-chip">
+          {{ chip.label }} {{ chip.value }}
+        </span>
+      </div>
     </section>
 
     <!-- 情报详情抽屉（与情报中心共用同一个组件） -->
@@ -556,6 +557,12 @@ function onSelectRelated(id: number) {
   color: var(--app-color-orange);
 }
 
+/* 风险提醒：与"重点变化"的橙区分开，用红色表达舆情风险 */
+.icon-red {
+  background-color: #fff1f0;
+  color: #ff4d4f;
+}
+
 .card-head {
   display: flex;
   align-items: center;
@@ -574,20 +581,13 @@ function onSelectRelated(id: number) {
   height: auto;
 }
 
-/* ============ 趋势导航图 / AI 今日洞察 ============ */
-.overview-row {
-  display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  gap: 3vw;
-}
-
+/* ============ 趋势导航图 ============ */
 .card-hint {
   font-size: 0.9vmax;
   color: var(--app-color-gray);
 }
 
-.trend-card,
-.insight {
+.trend-card {
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -647,11 +647,41 @@ function onSelectRelated(id: number) {
   font-weight: bold;
 }
 
-/* ============ 今日重要情报 ============ */
+/* ============ 今日要点（左结论 + 右证据） ============ */
 .focus-main {
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+.focus-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 2vw;
+  padding: 0 1vw;
+}
+
+/* 结论回答"怎么看"，列表回答"凭什么"：并排放在同一块，避免两处各说一遍 */
+.focus-insight {
+  display: flex;
+  flex-direction: column;
+  gap: 1vh;
+  min-width: 0;
+  min-height: 120px;
+  padding: 1vh 1vw;
+  border-radius: 1vmax;
+  background: var(--app-color-blue-light-5);
+}
+
+.insight-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6vw;
+}
+
+.insight-title {
+  font-size: 1vmax;
+  font-weight: bold;
 }
 
 .focus-list {
@@ -728,16 +758,6 @@ function onSelectRelated(id: number) {
   color: var(--app-color-gray);
 }
 
-.insight-body {
-  flex: 1;
-  min-width: 0;
-  min-height: 120px;
-  display: flex;
-  flex-direction: column;
-  gap: 1vh;
-  padding: 1vh 1vw;
-}
-
 .insight-badge {
   font-size: 0.85vmax;
   color: var(--app-color-gray);
@@ -766,15 +786,8 @@ function onSelectRelated(id: number) {
   overflow-wrap: anywhere;
 }
 
-.insight-foot {
-  margin-top: auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1vw;
-}
-
 .insight-scope {
+  margin-top: auto;
   font-size: 0.9vmax;
   color: var(--app-color-gray);
 }
@@ -801,6 +814,16 @@ function onSelectRelated(id: number) {
   border-radius: 1vmax;
   overflow: hidden; /* 兜底：内容再长也不出框 */
   background: var(--app-color-blue-light-5);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+/* 只有今天有变化的竞品才可点：点进去看它今天的情报 */
+.dyn-item.is-clickable {
+  cursor: pointer;
+}
+.dyn-item.is-clickable:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
+  transform: translateY(-1px);
 }
 
 .dyn-logo {
@@ -851,52 +874,35 @@ function onSelectRelated(id: number) {
   background: var(--el-color-success);
 }
 
-/* ============ 情报中心入口 ============ */
-.center-entry {
+/* ============ 今日分布（并到"今日要点"底部） ============ */
+.chips-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 2vw;
-  padding: 1.5vh 1.5vw;
-}
-
-.entry-left {
-  min-width: 0;
-}
-
-.entry-title {
-  font-size: 1.2vmax;
-  font-weight: bold;
-}
-
-.entry-desc {
+  flex-wrap: wrap;
+  gap: 0.6vw;
+  margin: 1.5vh 1vw 1.5vh;
+  padding-top: 1vh;
+  border-top: 1px solid var(--app-color-blue-light-5);
   font-size: 0.95vmax;
+}
+
+.chips-label {
   color: var(--app-color-gray);
-  margin-top: 0.4vh;
-  overflow-wrap: anywhere;
 }
 
 .entry-chip {
   display: inline-block;
-  margin-right: 0.8vw;
   padding: 0 0.5vw;
   border-radius: 0.4vmax;
   background: var(--app-color-blue-light-5);
   color: var(--app-text-color-regular);
 }
 
-.entry-button {
-  font-size: 1vmax;
-  height: auto;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
 @media (max-width: 900px) {
   .stat-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .overview-row {
+  .focus-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -913,10 +919,6 @@ function onSelectRelated(id: number) {
   .onboarding-hint {
     align-items: flex-start;
     flex-direction: column;
-  }
-  .center-entry {
-    flex-direction: column;
-    align-items: flex-start;
   }
 }
 </style>

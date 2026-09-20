@@ -9,9 +9,11 @@
  * 点击后通过 select 事件通知父组件切换 eventId，复用现有 watch 重新加载。
  */
 import { computed, ref, watch } from "vue";
-import { Close } from "@element-plus/icons-vue";
+import { useRouter } from "vue-router";
+import { Close, Download } from "@element-plus/icons-vue";
 import { useEventStore } from "@/stores/event";
 import { fetchEventSnapshots, fetchSnapshotRaw } from "@/api/event";
+import { exportEventMarkdown } from "@/utils/exportEvents";
 import type { EventSnapshot } from "@/types/event";
 
 const props = defineProps<{
@@ -25,6 +27,19 @@ const emit = defineEmits<{
 }>();
 
 const eventStore = useEventStore();
+const router = useRouter();
+
+/** 详情里的竞品名 → 竞品管理（带 competitorId 定位） */
+function goToCompetitor() {
+  const id = detail.value?.competitorId;
+  if (id) router.push({ name: "Competitor", query: { competitorId: String(id) } });
+}
+
+/** 导出本条情报事件为 Markdown */
+function onExportDetail() {
+  if (!detail.value) return;
+  exportEventMarkdown(detail.value);
+}
 
 const visible = computed({
   get: () => props.modelValue,
@@ -147,7 +162,12 @@ watch(
           </div>
           <div class="detail-head-main">
             <div class="detail-brand-row">
-              <span class="detail-brand">{{ detail.brand }}</span>
+              <span
+                class="detail-brand brand-link"
+                title="查看竞品"
+                @click="goToCompetitor"
+                >{{ detail.brand }}</span
+              >
               <span class="event-tag" :class="detail.tagType">{{
                 detail.tag
               }}</span>
@@ -161,6 +181,13 @@ watch(
               }}
             </div>
           </div>
+          <el-button
+            link
+            :icon="Download"
+            :disabled="!detail"
+            @click="onExportDetail"
+            >导出</el-button
+          >
           <el-button link :icon="Close" @click="visible = false" />
         </header>
 
@@ -381,6 +408,14 @@ watch(
 .detail-brand {
   font-size: 1.3vmax;
   font-weight: bold;
+}
+.brand-link {
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.brand-link:hover {
+  color: var(--app-color-primary);
+  text-decoration: underline;
 }
 
 .detail-sub {

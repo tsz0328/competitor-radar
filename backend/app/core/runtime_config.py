@@ -1,12 +1,12 @@
-"""运行时配置：把"可被界面修改"的配置放进进程内存。
+"""LLM 运行时配置的数据结构。
 
-为什么需要它：
-- 老的 LLMClient 直接读 .env（lru_cache 单例，构造时只读一次），
-  界面改了配置必须重启进程才生效。
-- 这里维护一份进程内"当前生效配置"：启动时从数据库加载一次，
-  界面保存后再刷新一次；LLM 调用读取它即可"改完即生效"，无需重启。
+这只是一个**不可变的值对象**：运行时不保存任何"当前生效配置"的全局状态，
+而是每次按用户解析（见 services/settings.py 的 get_user_llm_config）。
 
-只维护内存状态，不碰数据库（数据库读写放在 services/settings.py）。
+为什么改成按用户解析：
+- AI 配置（开关 / 供应商 / Key）按用户隔离、存在数据库里；
+- 抓取、趋势、周报等调用方都能拿到归属用户，直接解析出该用户自己的配置即可，
+  既不需要进程级单例，也不会有"一个用户改配置影响所有人"的问题。
 """
 from dataclasses import dataclass
 
@@ -15,7 +15,7 @@ from app.core.config import get_settings
 
 @dataclass(frozen=True)
 class LLMConfig:
-    """当前生效的 LLM 配置。"""
+    """某个用户当前生效的 LLM 配置。"""
 
     enabled: bool
     api_key: str
@@ -31,7 +31,7 @@ class LLMConfig:
 
 
 def env_llm_config() -> LLMConfig:
-    """从 .env / 环境变量构造配置（数据库还没有记录时的兜底）。"""
+    """从 .env / 环境变量构造配置（用户在数据库里还没有记录时的兜底）。"""
     s = get_settings()
     return LLMConfig(
         enabled=s.llm_enabled,
@@ -41,19 +41,3 @@ def env_llm_config() -> LLMConfig:
         timeout_seconds=s.llm_timeout_seconds,
         min_change_lines=s.llm_min_change_lines,
     )
-
-
-# 进程内当前配置；None 表示尚未初始化，首次读取时用 .env 兜底
-_current: LLMConfig | None = None
-
-
-def get_llm_config() -> LLMConfig:
-    global _current
-    if _current is None:
-        _current = env_llm_config()
-    return _current
-
-
-def set_llm_config(cfg: LLMConfig) -> None:
-    global _current
-    _current = cfg

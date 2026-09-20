@@ -104,7 +104,6 @@ const form = reactive({
   name: "",
   officialUrl: "",
   category: "",
-  description: "",
 });
 
 // 预置分类：对齐「同类 SaaS / App 官网监控」定位，不含电商类目（可自由输入）
@@ -625,7 +624,7 @@ async function loadTypeOptions() {
 function resetForm() {
   formRef.value?.clearValidate();
   lastSuggestedName = ""; // 重新打开弹窗后允许再次自动填充
-  Object.assign(form, { name: "", officialUrl: "", category: "", description: "" });
+  Object.assign(form, { name: "", officialUrl: "", category: "" });
   selected.value = [];
   Object.keys(urls).forEach((key) => delete urls[key]);
   Object.keys(intervals).forEach((key) => delete intervals[key]);
@@ -657,7 +656,6 @@ function applyCompetitor(item: CompetitorItem) {
   form.name = item.name ?? "";
   form.officialUrl = item.domain ?? "";
   form.category = item.category ?? "";
-  form.description = item.desc ?? "";
   (item.sources ?? []).forEach((source) => {
     if (selected.value.includes(source.sourceType)) return;
     selected.value.push(source.sourceType);
@@ -706,7 +704,6 @@ function buildPayload(skipTypes: Set<string> = new Set()): CompetitorCreatePaylo
     name: form.name.trim(),
     officialUrl: normalizeBaseUrl(form.officialUrl),
     category: form.category || undefined,
-    description: form.description.trim() || undefined,
     sources,
   };
 }
@@ -1170,16 +1167,6 @@ const footerTip = computed(() => {
               :value="c"
             />
           </el-select>
-        </el-form-item>
-        <el-form-item label="一句话描述" prop="description" class="flex-1">
-          <el-input
-            v-model="form.description"
-            placeholder="它是什么、和你的差异点"
-            maxlength="120"
-            show-word-limit
-            clearable
-            :disabled="locked"
-          />
         </el-form-item>
       </div>
 

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useEventStore } from "@/stores/event";
 import { useCompetitorStore } from "@/stores/competitor";
 import EventDetailDrawer from "@/components/EventDetailDrawer.vue";
 import type { EventRecord } from "@/types/event";
+import { exportEventsCsv } from "@/utils/exportEvents";
 import {
   Search,
   Calendar,
@@ -16,11 +17,17 @@ import {
   MoreFilled,
   ArrowLeft,
   ArrowRight,
+  Download,
 } from "@element-plus/icons-vue";
 
 const eventStore = useEventStore();
 const competitorStore = useCompetitorStore();
 const route = useRoute();
+const router = useRouter();
+
+// 详情抽屉的"打开哪一条"状态提前声明，便于 applyQuery 从 URL 的 id 直接定位
+const detailVisible = ref(false);
+const detailId = ref<number | null>(null);
 
 // 顶部筛选（关键词做 300ms 防抖，避免每次按键都打接口）
 const keyword = ref("");
@@ -57,26 +64,68 @@ function setQuickRange(key: string) {
   activeRange.value = key;
 }
 
-// 初始化为近 7 天
-setQuickRange("7d");
-
-// 从工作台趋势图点击某天钻取过来：直接筛选该日
-const dateParam = route.query.date;
-if (typeof dateParam === "string" && dateParam) {
-  dateRange.value = [dateParam, dateParam];
-  activeRange.value = "";
-}
-
-// 右侧筛选面板（支持从趋势页带 competitorId 跳转过来时预选竞品）
-const competitorParam = route.query.competitorId;
-const sideCompetitor = ref(
-  typeof competitorParam === "string" && competitorParam ? competitorParam : "all",
-);
-const sideTypes = ref(["feature", "price", "content", "negative", "other"]);
-const priorityParam = route.query.priority;
-const initialPriorities = typeof priorityParam === "string" ? priorityParam.split(",").filter(Boolean) : null;
-const sidePriorities = ref(initialPriorities ?? ["high", "mid", "low"]);
+// 右侧筛选面板
+const sideCompetitor = ref("all");
+const sidePriorities = ref(["high", "mid", "low"]);
 const sideConfidence = ref<[number, number]>([0, 100]);
+
+const CATEGORY_KEYS = ["feature", "price", "content", "negative", "other"] as const;
+const RANGE_KEYS = ["today", "7d", "30d"] as const;
+
+/**
+ * 把 URL 上的筛选还原成页面状态。
+ * 工作台/趋势/竞品页跳过来时会带上完整上下文（date / competitorId / category / priority ...），
+ * 在这里统一落成状态；浏览器前进后退也能回到同一视图。
+ */
+function applyQuery() {
+  const q = route.query;
+
+  const kw = typeof q.keyword === "string" ? q.keyword : "";
+  keyword.value = kw;
+  appliedKeyword.value = kw; // URL 带进来的关键词直接生效，不走防抖
+
+  const cat = typeof q.category === "string" ? q.category : "";
+  activeCategory.value = (CATEGORY_KEYS as readonly string[]).includes(cat)
+    ? (cat as typeof activeCategory.value)
+    : "total";
+
+  const cid = typeof q.competitorId === "string" ? q.competitorId : "";
+  sideCompetitor.value = cid || "all";
+
+  const priorities =
+    typeof q.priority === "string" ? q.priority.split(",").filter(Boolean) : [];
+  sidePriorities.value = priorities.length ? priorities : ["high", "mid", "low"];
+
+  const minC = Number(q.minConfidence);
+  const maxC = Number(q.maxConfidence);
+  sideConfidence.value = [
+    Number.isFinite(minC) ? minC : 0,
+    Number.isFinite(maxC) ? maxC : 100,
+  ];
+
+  // 时间范围优先级：date（单日钻取）> range（快捷预设）> 默认近 7 天
+  const d = typeof q.date === "string" ? q.date : "";
+  const r = typeof q.range === "string" ? q.range : "";
+  if (d) {
+    // 正好是今天时高亮「今天」预设，其它日期走自定义区间
+    if (d === formatDate(new Date())) {
+      setQuickRange("today");
+    } else {
+      dateRange.value = [d, d];
+      activeRange.value = "";
+    }
+  } else {
+    setQuickRange((RANGE_KEYS as readonly string[]).includes(r) ? r : "7d");
+  }
+
+  // 从周报/通知带进来的具体事件 id → 直接打开详情抽屉
+  const idQ = typeof q.id === "string" ? q.id : "";
+  const idNum = Number(idQ);
+  if (idQ && Number.isFinite(idNum)) {
+    detailId.value = idNum;
+    detailVisible.value = true;
+  }
+}
 
 const page = ref(1);
 const pageSize = ref(10);
@@ -143,6 +192,15 @@ function loadEvents() {
   eventStore.loadEventList(queryParams.value);
 }
 
+// 进页面先还原 URL 上的筛选，再交给下面的 watcher 拉数据（只发一次请求）
+applyQuery();
+
+// URL 变化（跨页跳转 / 浏览器前进后退）→ 重新还原筛选
+watch(
+  () => route.query,
+  () => applyQuery(),
+);
+
 // 筛选条件（不含分页）变化 → 回到第 1 页并重新拉取
 watch(
   () => ({
@@ -179,12 +237,11 @@ function resetFilters() {
   sidePriorities.value = ["high", "mid", "low"];
   sideConfidence.value = [0, 100];
   setQuickRange("7d");
+  // 同步清掉 URL 上的筛选，避免刷新或分享链接又带回旧条件
+  if (Object.keys(route.query).length) router.replace({ name: "Event" });
 }
 
-// ---- 事件详情抽屉：本体是公共组件，这里只负责"打开哪一条" ----
-const detailVisible = ref(false);
-const detailId = ref<number | null>(null);
-
+// ---- 事件详情抽屉：本体是公共组件，这里只负责"打开哪一条"（状态已在顶部声明） ----
 function openDetail(record: EventRecord) {
   detailId.value = record.id;
   detailVisible.value = true; // 组件打开后自行加载，等待态由组件承接
@@ -193,6 +250,11 @@ function openDetail(record: EventRecord) {
 // 抽屉内"相关事件"跳转：更新 eventId 即可，抽屉自身的 watch 会重新加载详情
 function onSelectRelated(id: number) {
   detailId.value = id;
+}
+
+// 导出当前列表（已应用筛选/分页的记录）为 CSV
+function onExport() {
+  exportEventsCsv(eventStore.eventList?.records ?? []);
 }
 
 // 按日期分组
@@ -243,6 +305,9 @@ const groups = computed(() => {
         :prefix-icon="Calendar"
         @change="activeRange = ''"
       />
+      <el-button class="export-btn" :icon="Download" @click="onExport"
+        >导出</el-button
+      >
     </div>
 
     <!-- 类型统计 -->
@@ -876,6 +941,10 @@ const groups = computed(() => {
 .range-btns .el-button {
   flex: 1;
   margin-left: 0;
+}
+
+.export-btn {
+  margin-left: auto;
 }
 
 .apply-btn {

@@ -3,7 +3,27 @@
 SQLite 不保存时区，SQLAlchemy 取回的是 naive datetime（实为 UTC），
 所有对外展示的时间都必须先按 UTC 解读、再转成本地时区，否则会差 8 小时。
 """
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+from app.core.config import get_settings
+
+
+def app_timezone() -> ZoneInfo:
+    """返回业务时区；配置错误会在首次使用时显式失败，避免静默落错日期。"""
+    return ZoneInfo(get_settings().app_timezone)
+
+
+def local_day_start_utc(day: date) -> datetime:
+    """业务时区某自然日 00:00 对应的 UTC 时刻。"""
+    local_start = datetime(day.year, day.month, day.day, tzinfo=app_timezone())
+    return local_start.astimezone(timezone.utc)
+
+
+def local_day_end_utc(day: date) -> datetime:
+    """业务时区某自然日 24:00 对应的 UTC 时刻。"""
+    next_day = day + timedelta(days=1)
+    return local_day_start_utc(next_day)
 
 
 def to_utc(moment: datetime | None) -> datetime | None:
@@ -17,7 +37,7 @@ def to_utc(moment: datetime | None) -> datetime | None:
 
 def to_local(moment: datetime | None) -> datetime | None:
     utc = to_utc(moment)
-    return utc.astimezone() if utc else None
+    return utc.astimezone(app_timezone()) if utc else None
 
 
 def humanize_ago(moment: datetime | None, *, empty: str = "从未") -> str:
@@ -47,7 +67,7 @@ def date_parts(moment: datetime | None) -> tuple[str, str, str]:
         return "", "", ""
     date_text = local.strftime("%Y-%m-%d")
     time_text = local.strftime("%H:%M")
-    delta = (datetime.now().astimezone().date() - local.date()).days
+    delta = (datetime.now(app_timezone()).date() - local.date()).days
     if delta == 0:
         label = "今天"
     elif delta == 1:

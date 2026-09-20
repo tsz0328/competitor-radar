@@ -1,7 +1,18 @@
 import enum
 from datetime import date
 
-from sqlalchemy import JSON, BigInteger, Boolean, Date, Enum, Index, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    Date,
+    Enum,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, BigIntPK, TimestampMixin, enum_values
@@ -44,4 +55,7 @@ class WeeklyReport(Base, TimestampMixin):
     # 结构化报表内容：stats / highlights / categoryDist / rank / trend / 关联事件等
     payload: Mapped[dict | None] = mapped_column(JSON)
 
-    __table_args__ = (Index("idx_report_user_created", "user_id", "created_at"),)
+    __table_args__ = (
+        Index("idx_report_user_created", "user_id", "created_at"),
+        UniqueConstraint("user_id", "range_start", name="uq_report_user_range_start"),
+    )

@@ -5,22 +5,28 @@
 import difflib
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.cache import get_cache
 from app.core.config import get_settings
 from app.core.event_types import EVENT_TYPE_LABELS
 from app.core.llm import get_llm_client, is_significant_change
-from app.core.runtime_config import get_llm_config
 from app.core.source_registry import RenderMode, SourceType, SourceTypeConfig, get_source_config
 from app.models.competitor import Competitor
+from app.models.crawl_log import (
+    RETENTION_DAYS,
+    TRIGGER_MANUAL,
+    CrawlLog,
+)
 from app.models.event import IntelligenceEvent
 from app.models.snapshot import PageSnapshot
 from app.models.source import MonitorSource
+from app.models.user import User
 from app.services import browser, crawler, notifier
+from app.services.settings import get_user_llm_config
 
 settings = get_settings()
 
@@ -152,11 +158,12 @@ async def _create_event(
     返回新创建的事件对象（供调用方做高优先级即时通知）；过轻则不生成，返回 None。
     """
     diff_text = snapshot.diff_text or ""
-    # 阈值取运行时配置：设置页改了"最小变更行数"立即生效
-    if not is_significant_change(diff_text, get_llm_config().min_change_lines):
+    # 按竞品归属用户解析配置：阈值与模型都用这个用户自己的（改完即生效）
+    llm_cfg = await get_user_llm_config(db, competitor.user_id)
+    if not is_significant_change(diff_text, llm_cfg.min_change_lines):
         return None
 
-    analysis = await get_llm_client().classify_and_summarize(
+    analysis = await get_llm_client(llm_cfg).classify_and_summarize(
         competitor_name=competitor.name,
         source_type=source.source_type,
         url=source.url,
@@ -182,14 +189,19 @@ async def _create_event(
 
 
 async def _notify_high_priority(
-    competitor: Competitor, source: MonitorSource, event: IntelligenceEvent
+    competitor: Competitor,
+    source: MonitorSource,
+    event: IntelligenceEvent,
+    notify_to: list[str],
 ) -> None:
     """高优先级情报事件即时推送一条通知，让用户不必每天打开 Dashboard 也能收到提醒。
 
     这是相对于"整批结束后的汇总通知"的**单条即时推送**（见 scheduler 的批次汇总）。
     推送是旁路：notifier 内部已保证失败不影响主流程，且只在 NOTIFY_ENABLED 时发送。
+
+    notify_to：竞品归属用户在「用户中心」里填的通知邮箱；没填则由 notifier 回退运维配置。
     """
-    link = f"{settings.frontend_base_url.rstrip('/')}/app/event"
+    link = f"{settings.frontend_base_url.rstrip('/')}/app/event?id={event.id}"
     label = EVENT_TYPE_LABELS.get(event.event_type, "情报变化")
     title = f"🔴 重要竞品变化：{competitor.name} · {label}"
     message = (
@@ -198,7 +210,12 @@ async def _notify_high_priority(
         f"来源页面：{source.name}（{source.url}）\n"
         f"事件ID：{event.id}　查看详情：{link}"
     )
-    await notifier.notify(title, message)
+    # 高优事件：广播给相应用户，驱动通知中心 SSE 实时刷新未读数
+    if event.priority == "high":
+        from app.core.event_bus import bus
+
+        await bus.publish(competitor.user_id, {"type": "high_event", "eventId": event.id})
+    await notifier.notify(title, message, to=notify_to)
 
 
 def _looks_like_html(html: str) -> bool:
@@ -363,9 +380,15 @@ async def _crawl_source_locked(
     event = await _create_event(db, competitor, source, snapshot)
     event_created = event is not None
 
-    # 高优先级事件即时推送（独立于调度器整批结束后的汇总通知），让用户尽早收到提醒
+    # 高优先级事件即时推送（独立于调度器整批结束后的汇总通知），让用户尽早收到提醒。
+    # 收件人取竞品归属用户在「用户中心」填的通知邮箱；没填则由 notifier 回退运维配置。
     if event is not None and event.priority == "high":
-        await _notify_high_priority(competitor, source, event)
+        owner_email = await db.scalar(
+            select(User.email).where(User.id == competitor.user_id)
+        )
+        await _notify_high_priority(
+            competitor, source, event, [owner_email] if owner_email else []
+        )
 
     _mark_success(source)
     return SourceCrawlOutcome(
@@ -384,11 +407,15 @@ async def run_competitor_crawl(
     db: AsyncSession,
     competitor: Competitor,
     sources: list[MonitorSource],
+    trigger: str = TRIGGER_MANUAL,
 ) -> list[SourceCrawlOutcome]:
     """顺序抓取给定的若干个监控源，并输出符合隐私约束的结构化日志。
 
     手动触发（接口）与定时调度（scheduler）共用这一段，
     保证两条入口在留痕策略、失败收敛与日志口径上完全一致。
+
+    每个源的结果同时落一条 CrawlLog（随本事务提交），供「抓取日志」页回溯——
+    否则定时抓取的结果只进服务端日志文件，用户无从知晓半夜发生了什么。
 
     注意：这里不 commit，由调用方决定提交粒度（接口一次性提交、调度逐源提交）。
     """
@@ -413,4 +440,33 @@ async def run_competitor_crawl(
             source.url,
             outcome.error,
         )
+        # 同一份事实落库一份：页面名/竞品名取当下快照，之后改名不影响历史
+        db.add(
+            CrawlLog(
+                user_id=competitor.user_id,
+                competitor_id=competitor.id,
+                competitor_name=competitor.name,
+                source_id=source.id,
+                source_name=source.name,
+                source_type=source.source_type.value,
+                url=source.url,
+                trigger=trigger,
+                status=outcome.status,
+                http_status=outcome.http_status,
+                changed=outcome.changed,
+                first_time=outcome.first_time,
+                event_created=outcome.event_created,
+                duration_ms=outcome.duration_ms,
+                error=outcome.error,
+            )
+        )
+
+    # 保留期清理：顺手删过期行（有 idx_crawl_log_user_time 索引，代价可忽略）
+    cutoff = datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)
+    await db.execute(
+        delete(CrawlLog).where(
+            CrawlLog.user_id == competitor.user_id,
+            CrawlLog.created_at < cutoff,
+        )
+    )
     return outcomes

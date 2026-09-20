@@ -3,6 +3,8 @@
 只提供观测，不提供手动触发——抓取的入口是 `POST /api/competitors/{id}/crawl`，
 周报的入口是 `POST /api/reports/generate`，避免出现两套触发语义。
 """
+from typing import Annotated
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,11 +19,11 @@ router = APIRouter(prefix="/api/scheduler", tags=["scheduler"])
 
 @router.get("", response_model=SchedulerStatusOut)
 async def scheduler_status(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
-    """调度器是否在跑、各任务下次执行时间、当前有多少个监控源到期待抓。"""
+    """调度器是否在跑、各任务下次执行时间、当前账号有多少个监控源到期待抓。"""
     return SchedulerStatusOut(
         **scheduler_service.get_scheduler_status(),
-        pending_sources=await scheduler_service.count_due_sources(db),
+        pending_sources=await scheduler_service.count_due_sources(db, current_user.id),
     )

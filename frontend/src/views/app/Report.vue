@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useReportStore } from "@/stores/report";
 import { marked } from "marked";
@@ -26,9 +27,18 @@ import {
 } from "@element-plus/icons-vue";
 
 const reportStore = useReportStore();
+const router = useRouter();
+
+/** 周报相关事件 → 情报中心（带 id 直接打开该事件详情） */
+function goToEvent(id: number) {
+  router.push({ name: "Event", query: { id: String(id) } });
+}
+/** 周报涉及竞品 → 竞品管理（按名称预填，定位到该竞品） */
+function goToCompetitor(name: string) {
+  router.push({ name: "Competitor", query: { keyword: name } });
+}
 
 // 左侧列表状态
-const sideTab = ref<"list" | "template">("list");
 const keyword = ref("");
 const typeFilter = ref<"all" | "weekly" | "monthly">("all");
 const onlyFavorite = ref(false);
@@ -138,7 +148,8 @@ async function onToggleFavorite(id: number) {
 }
 
 function onDownload() {
-  ElMessage.success("PDF 导出任务已开始，完成后将通知您");
+  if (!activeId.value) return;
+  window.open(`/api/reports/${activeId.value}/export`, "_blank", "noopener");
 }
 
 async function onShare() {
@@ -155,12 +166,6 @@ async function onShare() {
   <div class="report-page">
     <!-- 左侧：报告列表 -->
     <aside class="report-side card">
-      <el-radio-group v-model="sideTab" class="side-tabs">
-        <el-radio-button value="list">报告列表</el-radio-button>
-        <el-radio-button value="template">报告模板</el-radio-button>
-      </el-radio-group>
-
-      <template v-if="sideTab === 'list'">
         <el-input
           v-model="keyword"
           class="side-search"
@@ -233,11 +238,6 @@ async function onShare() {
         <footer class="side-footer">
           共 {{ reportStore.reportList?.total ?? 0 }} 份报告
         </footer>
-      </template>
-
-      <div v-else class="template-empty">
-        <el-empty description="报告模板功能即将上线" />
-      </div>
     </aside>
 
     <!-- 右侧：报告详情 -->
@@ -263,7 +263,7 @@ async function onShare() {
               收藏
             </el-button>
             <el-button :icon="Download" @click="onDownload">
-              下载（PDF）
+              导出 PDF
             </el-button>
             <el-button :icon="Share" @click="onShare">分享</el-button>
             <el-button :icon="MoreFilled" text />
@@ -402,6 +402,7 @@ async function onShare() {
                 v-for="e in detail.relatedEvents"
                 :key="e.id"
                 class="related-event"
+                @click="goToEvent(e.id)"
               >
                 <span class="event-tag" :class="e.tagType">{{ e.tag }}</span>
                 <div class="related-event-body">
@@ -419,6 +420,7 @@ async function onShare() {
                 v-for="c in detail.relatedCompetitors"
                 :key="c.name"
                 class="competitor-card"
+                @click="goToCompetitor(c.name)"
               >
                 <div
                   class="competitor-logo"
@@ -482,14 +484,6 @@ async function onShare() {
   padding: 1.5vh 1vw;
   gap: 1.2vh;
   min-height: 0;
-}
-
-.side-tabs {
-  align-self: flex-start;
-}
-
-.side-tabs :deep(.el-radio-button__inner) {
-  font-size: 1vmax;
 }
 
 .side-search {
@@ -617,13 +611,6 @@ async function onShare() {
   color: var(--app-color-gray);
   border-top: 1px solid var(--app-color-blue-light-4);
   padding-top: 1vh;
-}
-
-.template-empty {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 /* ===== 右侧详情 ===== */
@@ -1088,6 +1075,12 @@ async function onShare() {
   border: 1px solid var(--app-color-blue-light-4);
   border-radius: 0.8vmax;
   padding: 1.2vh 1vw;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.related-event:hover {
+  background: #f7f9ff;
+  border-color: var(--app-color-primary);
 }
 
 .event-tag {
@@ -1123,6 +1116,12 @@ async function onShare() {
   flex-direction: column;
   align-items: center;
   gap: 0.6vh;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.competitor-card:hover {
+  background: #f7f9ff;
+  border-color: var(--app-color-primary);
 }
 
 .competitor-logo {

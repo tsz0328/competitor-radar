@@ -12,6 +12,13 @@ class Settings(BaseSettings):
 
     # ---- 数据库（开发期 SQLite；生产换 MySQL 只改这一行）----
     db_url: str = "sqlite+aiosqlite:///./dev.db"
+    # ---- 通用运行参数 ----
+    # 业务时区：事件日期、通知未读窗口、周报自然周均按此时区口径计算
+    app_timezone: str = "Asia/Shanghai"
+    # 默认拦截内网 / 回环 / 链路本地地址，防止伪造 URL 让服务端发起 SSRF 请求
+    allow_private_network_urls: bool = False
+    # 通知中心只把最近 N 个自然日的高优事件计为未读，全部已读也只写这个窗口
+    notification_window_days: int = 90
     # 启动时自动建表：开发期方便；生产置为 false，改由 `alembic upgrade head` 建表，
     # 避免应用"越权"修改已上线库的结构。
     db_auto_create: bool = True
@@ -26,7 +33,18 @@ class Settings(BaseSettings):
     # ---- JWT ----
     jwt_secret: str = "dev-secret-change-me"  # ⚠️ 必须在 .env 里覆盖成随机值
     jwt_algorithm: str = "HS256"
+    # ---- 初始管理员 ----
+    # 默认关闭，避免固定弱密码账号被直接种进生产环境
+    bootstrap_admin_enabled: bool = False
+    bootstrap_admin_username: str = "admin"
+    bootstrap_admin_password: str = ""
+    # 兜底时长：调用方没显式指定时用它（登录接口会按「记住我」传具体值）
     access_token_expire_minutes: int = 60 * 24 * 7  # 7 天
+    # 登录时按「记住我」二选一：
+    #   勾选 → 长期令牌，关掉浏览器再打开仍是登录态
+    #   不勾 → 会话令牌，前端只存 sessionStorage，这里再给一个短命上限兜底
+    remember_token_expire_minutes: int = 60 * 24 * 30  # 30 天
+    session_token_expire_minutes: int = 60 * 24  # 24 小时
 
     # ---- CORS：允许哪些前端地址访问后端 ----
     cors_origins: list[str] = ["http://localhost:5173"]

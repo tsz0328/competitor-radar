@@ -6,6 +6,7 @@
 """
 from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, or_, select
@@ -15,6 +16,7 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.event_types import EVENT_TYPE_CATEGORY, EventType
 from app.core.exceptions import ERR_EVENT_NOT_FOUND, BusinessError
+from app.core.timeutil import local_day_end_utc, local_day_start_utc
 from app.models.competitor import Competitor
 from app.models.event import IntelligenceEvent
 from app.models.snapshot import PageSnapshot
@@ -123,20 +125,20 @@ def _to_record(row) -> EventRecordOut:
 
 @router.get("", response_model=EventListOut)
 async def list_events(
-    competitor_id: int | None = Query(default=None, alias="competitorId"),
-    category: str | None = Query(default=None, alias="category"),
-    event_type: EventType | None = Query(default=None, alias="eventType"),
-    priority: str | None = Query(default=None, alias="priority"),
-    min_confidence: int | None = Query(default=None, alias="minConfidence", ge=0, le=100),
-    max_confidence: int | None = Query(default=None, alias="maxConfidence", ge=0, le=100),
-    keyword: str | None = Query(default=None, alias="keyword"),
-    start_date: date_cls | None = Query(default=None, alias="startDate"),
-    end_date: date_cls | None = Query(default=None, alias="endDate"),
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    competitor_id: int | None = Query(default=None, alias='competitorId'),
+    category: str | None = Query(default=None, alias='category'),
+    event_type: EventType | None = Query(default=None, alias='eventType'),
+    priority: str | None = Query(default=None, alias='priority'),
+    min_confidence: int | None = Query(default=None, alias='minConfidence', ge=0, le=100),
+    max_confidence: int | None = Query(default=None, alias='maxConfidence', ge=0, le=100),
+    keyword: str | None = Query(default=None, alias='keyword'),
+    start_date: date_cls | None = Query(default=None, alias='startDate'),
+    end_date: date_cls | None = Query(default=None, alias='endDate'),
     days: int | None = Query(default=None, ge=1, le=365),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """事件列表（只返回当前用户自己的竞品产生的事件）。
 
@@ -147,12 +149,9 @@ async def list_events(
     start = None
     end = None
     if start_date is not None:
-        start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+        start = local_day_start_utc(start_date)
     if end_date is not None:
-        end = (
-            datetime(end_date.year, end_date.month, end_date.day, tzinfo=timezone.utc)
-            + timedelta(days=1)
-        )
+        end = local_day_end_utc(end_date)
     min_c = min_confidence / 100 if min_confidence is not None else None
     max_c = max_confidence / 100 if max_confidence is not None else None
 
@@ -231,13 +230,13 @@ async def list_events(
 
 @router.get("/related", response_model=list[EventRecordOut])
 async def related_events(
-    competitor_id: int = Query(..., alias="competitorId"),
-    exclude_id: int | None = Query(default=None, alias="excludeId"),
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    competitor_id: int = Query(..., alias='competitorId'),
+    exclude_id: int | None = Query(default=None, alias='excludeId'),
     limit: int = Query(default=8, ge=1, le=30),
     days: int | None = Query(default=None, ge=1, le=365),
     category: str | None = Query(default=None),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """某竞品的其它事件（详情抽屉"相关事件"用），只返回当前用户自己的竞品。
     可按时间范围(days)与类型(category)筛选。"""
@@ -267,9 +266,9 @@ async def related_events(
 
 @router.get("/daily-insight", response_model=DailyInsightOut)
 async def daily_insight(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     days: int = Query(default=1, ge=1, le=7),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """工作台「AI 今日洞察」：聚合近 N 天事件，由 LLM（无 Key 时规则兜底）总结成一段话。
 
@@ -280,10 +279,10 @@ async def daily_insight(
 
 @router.get("/{event_id}/snapshots", response_model=list[SnapshotOut])
 async def event_snapshots(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     event_id: int,
     limit: int = Query(default=10, ge=1, le=50),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """该事件所属监控页面的历史快照（详情抽屉「查看历史快照」用）。"""
     event = (
@@ -327,9 +326,9 @@ async def event_snapshots(
 
 @router.get("/{event_id}", response_model=EventDetailOut)
 async def get_event(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     event_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """事件详情：补上差异原文与来源地址。"""
     row = (

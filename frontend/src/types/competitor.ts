@@ -11,8 +11,6 @@ export interface CompetitorItem {
   category: string;
   /** 分类标签样式类型（v1 只监控同类 SaaS / App，不含电商） */
   categoryType: "saas" | "ai" | "app" | "tool";
-  /** 一句话描述 */
-  desc: string;
   /** 监控页面名称列表 */
   pages: string[];
   /** 折叠的额外页面数量 */
@@ -119,7 +117,6 @@ export interface CompetitorCreatePayload {
   name: string;
   officialUrl: string;
   category?: string;
-  description?: string;
   sources?: MonitorSourceInput[];
 }
 

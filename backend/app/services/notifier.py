@@ -14,49 +14,82 @@ import smtplib
 from email.message import EmailMessage
 
 from app.core.config import get_settings
+from app.services.system_settings import get_effective_smtp_config
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-def _recipients() -> list[str]:
-    """收件人：优先 NOTIFY_RECIPIENTS，留空则发给自己（SMTP_USERNAME）。"""
-    raw = settings.notify_recipients or settings.smtp_username or settings.smtp_sender
+def _recipients(to: list[str] | None, fallback_sender: str) -> list[str]:
+    """收件人：优先调用方给的（某用户自己的通知邮箱），否则回退运维配置。
+
+    - 传了 to：这是"某个用户的事"（如他的竞品出现高优变化），只发给他自己；
+    - 没传：系统级通知（如周报批次完成），发给 NOTIFY_RECIPIENTS / SMTP_USERNAME /
+      SMTP_SENDER（fallback_sender 为运行时生效的发件人）。
+    """
+    if to:
+        return [item.strip() for item in to if item and item.strip()]
+    raw = settings.notify_recipients or settings.smtp_username or fallback_sender
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-def _send_smtp(title: str, message: str) -> None:
+def _send_smtp(
+    title: str,
+    message: str,
+    recipients: list[str],
+    sender: str,
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+) -> None:
     """同步发送邮件；由调用方丢进线程池，避免阻塞事件循环。"""
-    recipients = _recipients()
     if not recipients:
-        raise RuntimeError("未配置收件人（NOTIFY_RECIPIENTS 或 SMTP_USERNAME）")
-    if not settings.smtp_host:
-        raise RuntimeError("未配置 SMTP_HOST")
+        raise RuntimeError("未配置收件人（该用户没填通知邮箱，NOTIFY_RECIPIENTS 也为空）")
+    if not host:
+        raise RuntimeError("未配置 SMTP 服务器（SMTP_HOST）")
+    if not username or not password:
+        raise RuntimeError("未配置 SMTP 用户名或授权码")
 
     mail = EmailMessage()
     mail["Subject"] = title
-    mail["From"] = settings.smtp_sender or settings.smtp_username
+    mail["From"] = sender or username
     mail["To"] = ", ".join(recipients)
     mail.set_content(message)
 
-    if settings.smtp_port == 465:
-        with smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=15) as client:
-            client.login(settings.smtp_username, settings.smtp_password)
+    if port == 465:
+        with smtplib.SMTP_SSL(host, port, timeout=15) as client:
+            client.login(username, password)
             client.send_message(mail)
     else:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as client:
+        with smtplib.SMTP(host, port, timeout=15) as client:
             client.starttls()
-            client.login(settings.smtp_username, settings.smtp_password)
+            client.login(username, password)
             client.send_message(mail)
 
 
-async def notify(title: str, message: str) -> bool:
-    """发送一条通知；返回是否真的发出去了（未开启或发送失败都返回 False）。"""
+async def notify(title: str, message: str, to: list[str] | None = None) -> bool:
+    """发送一条通知；返回是否真的发出去了（未开启或发送失败都返回 False）。
+
+    to 指定收件人（用户自己的通知邮箱）；不传则回退运维配置的收件人。
+    """
     if not settings.notify_enabled:
         return False
+    # SMTP 连接参数读运行时生效值（界面可覆盖 .env 的 SMTP_*）
+    cfg = await get_effective_smtp_config()
     try:
         if settings.notify_backend == "smtp":
-            await asyncio.to_thread(_send_smtp, title, message)
+            await asyncio.to_thread(
+                _send_smtp,
+                title,
+                message,
+                _recipients(to, cfg["sender"]),
+                cfg["sender"],
+                cfg["host"],
+                cfg["port"],
+                cfg["username"],
+                cfg["password"],
+            )
         else:
             logger.info("notify[log] %s ｜ %s", title, message)
         return True

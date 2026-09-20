@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import ElementPlus from "element-plus";
+import { createPinia, setActivePinia } from "pinia";
 import CompetitorFormDialog from "@/components/CompetitorFormDialog.vue";
+import { usePreferencesStore } from "@/stores/preferences";
+import { fetchMyPreferences, saveMyPreferences } from "@/api/user";
 import {
   checkSourceUrl,
   discoverSources,
@@ -49,6 +52,12 @@ vi.mock("@/api/competitor", () => ({
   suggestCompetitor: vi.fn(),
 }));
 
+// 偏好 store 会去打这两个接口，必须挡住，否则单测里发真实请求
+vi.mock("@/api/user", () => ({
+  fetchMyPreferences: vi.fn(),
+  saveMyPreferences: vi.fn(),
+}));
+
 const { storeMock } = vi.hoisted(() => ({
   storeMock: {
     addCompetitor: vi.fn(),
@@ -65,7 +74,16 @@ let wrapper: any;
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  localStorage.clear(); // 隔离全局偏好（allowUnreachableOfficial 会写入 localStorage）
+  // 组件用了 preferences store（Pinia），每个用例给一套干净的 pinia / store 实例
+  setActivePinia(createPinia());
+  vi.mocked(fetchMyPreferences).mockResolvedValue({
+    allowUnreachableOfficial: false,
+    defaultSourceTypes: ["homepage"],
+  });
+  vi.mocked(saveMyPreferences).mockImplementation(async (patch: any) => ({
+    allowUnreachableOfficial: patch.allowUnreachableOfficial ?? false,
+    defaultSourceTypes: patch.defaultSourceTypes ?? ["homepage"],
+  }));
   vi.mocked(fetchSourceTypes).mockResolvedValue([...TYPES]);
   mockCheck(""); // 默认可达
   vi.mocked(discoverSources).mockResolvedValue({
@@ -434,7 +452,6 @@ describe("添加竞品 - 边界修复", () => {
           name: "X",
           domain: "https://x.com",
           category: "AI",
-          desc: "",
           sources: [
             {
               id: 1,
@@ -704,7 +721,6 @@ describe("添加竞品 - 编辑模式：不可达页可选择性移除", () => {
           name: "X",
           domain: "https://x.com",
           category: "AI",
-          desc: "",
           sources: [
             {
               id: 1,
@@ -911,8 +927,13 @@ describe("添加竞品 - 官网不可达放行 与 批量入口", () => {
     expect(vm().checkProgress.done).toBe(2);
   });
 
-  it("记住「官网放行」偏好：下次打开仍生效", async () => {
-    localStorage.setItem("competitor.allowUnreachableOfficial", "1");
+  it("「官网放行」偏好来自服务端：新会话（新 store）打开弹窗仍生效", async () => {
+    // 换一套 pinia＝模拟"下次打开"：store 会重新向服务端读偏好
+    setActivePinia(createPinia());
+    vi.mocked(fetchMyPreferences).mockResolvedValue({
+      allowUnreachableOfficial: true,
+      defaultSourceTypes: ["homepage"],
+    });
     const w: any = mount(CompetitorFormDialog, {
       props: { modelValue: false },
       global: { plugins: [ElementPlus] },
@@ -921,23 +942,25 @@ describe("添加竞品 - 官网不可达放行 与 批量入口", () => {
     await w.setProps({ modelValue: true });
     await flushPromises();
     expect(w.vm.allowUnreachableOfficial).toBe(true);
+    // 回填偏好也会写回一次（值与服务端一致，重复提交无害）
+    expect(vi.mocked(saveMyPreferences)).toHaveBeenCalledWith({
+      allowUnreachableOfficial: true,
+    });
     w.unmount();
   });
 
-  it("每次打开弹窗都会重新读取全局偏好（设置页改动即时生效）", async () => {
+  it("设置页改了偏好：同一个 store，重开弹窗立刻用新值", async () => {
     expect(vm().allowUnreachableOfficial).toBe(false);
-    localStorage.setItem("competitor.allowUnreachableOfficial", "1");
+    // 设置页与弹窗共用同一个 preferences store（偏好跟账号走，不再走 localStorage）
+    usePreferencesStore().allowUnreachableOfficial = true;
     await wrapper.setProps({ modelValue: false });
     await wrapper.setProps({ modelValue: true });
     await flushPromises();
     expect(vm().allowUnreachableOfficial).toBe(true);
   });
 
-  it("默认勾选页面跟随全局偏好", async () => {
-    localStorage.setItem(
-      "competitor.defaultSelectedTypes",
-      JSON.stringify(["homepage", "pricing"]),
-    );
+  it("默认勾选页面跟随服务端偏好", async () => {
+    usePreferencesStore().defaultSourceTypes = ["homepage", "pricing"];
     await wrapper.setProps({ modelValue: false });
     await wrapper.setProps({ modelValue: true });
     await flushPromises();

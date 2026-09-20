@@ -27,86 +27,6 @@
 
 ## 一、目标目录结构
 
-```text
-竞品雷达
-├── backend/
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py                 # FastAPI 入口：CORS、挂载路由、启动事件建表
-│   │   ├── core/
-│   │   │   ├── config.py           # pydantic-settings 读 .env（DB_URL / JWT / LLM / 缓存）
-│   │   │   ├── database.py         # 异步 engine + session 工厂（DB 无关）
-│   │   │   ├── security.py         # 密码哈希(bcrypt) + JWT 签发/校验
-│   │   │   ├── cache.py            # MemoryCache / RedisCache 抽象
-│   │   │   └── llm.py              # LLMClient 抽象 + Mock 兜底
-│   │   ├── models/                 # SQLAlchemy 模型（6 张表）
-│   │   │   ├── user.py
-│   │   │   ├── competitor.py
-│   │   │   ├── snapshot.py
-│   │   │   ├── event.py
-│   │   │   ├── weekly_report.py
-│   │   │   └── trend.py
-│   │   ├── schemas/                # Pydantic 请求/响应模型
-│   │   │   ├── user.py
-│   │   │   ├── competitor.py
-│   │   │   ├── event.py
-│   │   │   ├── report.py
-│   │   │   └── trend.py
-│   │   ├── api/
-│   │   │   ├── deps.py             # get_current_user / get_db 依赖
-│   │   │   ├── auth.py             # /api/auth/register|login
-│   │   │   ├── competitors.py      # /api/competitors CRUD + 手动抓取
-│   │   │   ├── events.py           # /api/events 列表/详情 + SSE(可选)
-│   │   │   ├── reports.py          # /api/reports 列表/详情/手动生成
-│   │   │   └── trends.py           # /api/trends/{id} 与 chart 数据
-│   │   ├── services/
-│   │   │   ├── crawler.py          # Playwright 抓取 + trafilatura 提取正文
-│   │   │   ├── analyzer.py         # Diff 粗筛 → LLM 分类+摘要 → 写事件
-│   │   │   ├── trend.py            # 聚合历史事件 → LLM 趋势判断
-│   │   │   ├── report.py           # 周报聚合生成
-│   │   │   └── scheduler.py        # APScheduler 定时任务（里程碑 10）
-│   │   └── seed.py                 # 可选：造 demo 数据
-│   ├── requirements.txt
-│   ├── .env.example
-│   ├── Dockerfile
-│   └── tests/
-│
-├── frontend/
-│   ├── index.html
-│   ├── vite.config.ts
-│   ├── tsconfig.json
-│   ├── package.json
-│   └── src/
-│       ├── main.ts
-│       ├── App.vue
-│       ├── env.d.ts
-│       ├── router/index.ts         # 路由 + 登录守卫
-│       ├── api/                     # axios 实例(拦截器带 Token) + 各模块
-│       │   ├── request.ts
-│       │   ├── authApi.ts
-│       │   ├── competitorApi.ts
-│       │   ├── eventApi.ts
-│       │   ├── reportApi.ts
-│       │   └── trendApi.ts
-│       ├── store/                   # Pinia：user / competitor / event
-│       ├── layouts/                 # 基础布局 / 带侧边栏后台布局
-│       ├── views/
-│       │   ├── Home.vue             # 产品首页(landing, 按 page-design.md)
-│       │   ├── Login.vue
-│       │   ├── Dashboard.vue        # 数据概览 + ECharts 趋势图
-│       │   ├── Competitors.vue      # 竞品 CRUD
-│       │   ├── Events.vue           # 事件流时间轴
-│       │   ├── Reports.vue          # 周报/趋势
-│       │   └── Settings.vue
-│       ├── components/              # EventCard / TrendChart / StatCard 等
-│       └── utils/
-│
-├── docs/  (architecture.md / page-design.md / milestones.md 本文件)
-├── docker-compose.yml              # 里程碑 11：FastAPI+MySQL+Redis+Nginx+前端
-├── README.md
-├── LICENSE
-└── .gitignore
-```
 
 ---
 
@@ -217,7 +137,7 @@
 - [x] **10.2 通知推送（可选）**：`services/notifier.py`，默认关闭（`NOTIFY_ENABLED=false`）；开启后可选 `log`（仅写日志，零依赖）或 `smtp`（邮件）后端。推送是**旁路**——发送失败只记 warning，绝不影响抓取与周报生成；正文只含统计与标题，不含页面正文。
 - [x] **10.3 观测能力**：`GET /api/scheduler` 返回调度器是否在跑、各 job 下次执行时间、当前到期待抓的源数量；竞品接口新增 `nextCrawlAt`（即将抓取 / 明天 08:00 / 已暂停），前端列表与卡片同步展示——否则用户看不出系统已在自动监控。
 - [x] **验收**：启动后 APScheduler 自行按 tick 触发（实测 7 秒内触发 3 次），到期的源被自动抓取并落快照；未到间隔不重复抓；调度器启停干净。
-- [ ] **遗留**：`notify_backend=smtp` 的真实发信未实测（需真实 SMTP 账号）；通知目前只有"抓取发现变化"与"周报已生成"两类，未做单条事件级别的即时推送。
+- [ ] **遗留**：`notify_backend=smtp` 的真实发信未实测（需真实 SMTP 账号）；前端「通知中心」已能消费高优事件（单条事件级、服务端已读态 `event_reads`、多端一致），红点通过顶栏 60s 轮询 `/api/notifications/unread-count` 实时刷新；**主动推送（邮件 / SSE / WebSocket 即时弹窗）尚未做**。
 
 ### 里程碑 11：Docker 部署与打磨
 - [x] **11.1 Alembic 迁移**：`alembic.ini` + `migrations/`（异步 env；连接串复用应用配置，不在 ini 里再写一份）。初始迁移与 `Base.metadata.create_all` 建出的表结构**逐表逐列比对一致**；存量库用 `alembic stamp head` 接入（只写版本表，不动数据）。新增 `DB_AUTO_CREATE` 开关：开发期 `create_all`，生产走迁移。
@@ -312,4 +232,3 @@ cookiecutter https://github.com/tiangolo/full-stack-fastapi-template
 | 冗余文件 | 有 demo 要删 | 零冗余 |
 | 业务代码 | 都不生成 | 全自己写 |
 | 学习价值 | 低（黑盒生成） | 高（每行都懂） |
-

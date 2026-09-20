@@ -18,6 +18,7 @@ from dataclasses import dataclass
 
 from app.core.config import get_settings
 from app.core.http_errors import explain_http_status
+from app.core.network import validate_remote_url
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -145,6 +146,11 @@ async def _block_assets(context) -> None:
 async def fetch_rendered(url: str) -> RenderResult:
     """用真实浏览器渲染一个页面，返回执行完 JS 之后的 HTML。"""
     start = time.perf_counter()
+    validation = await validate_remote_url(url)
+    if not validation.ok:
+        return RenderResult(
+            ok=False, url=url, error=validation.message, elapsed_ms=_elapsed_ms(start)
+        )
     context = await _ensure_context()
     if context is None:
         return RenderResult(
@@ -170,6 +176,14 @@ async def fetch_rendered(url: str) -> RenderResult:
             pass
 
         html = await page.content()
+        final_validation = await validate_remote_url(page.url)
+        if not final_validation.ok:
+            return RenderResult(
+                ok=False,
+                url=page.url,
+                error=final_validation.message,
+                elapsed_ms=_elapsed_ms(start),
+            )
         status = response.status if response else None
         if status is not None and status >= 400:
             return RenderResult(

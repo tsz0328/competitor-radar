@@ -78,7 +78,6 @@ class CompetitorCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     official_url: str = Field(..., min_length=1, max_length=255)
     category: str | None = Field(default=None, max_length=50)
-    description: str | None = None
     sources: list[MonitorSourceCreate] = Field(default_factory=list)
 
     @field_validator("name")
@@ -109,7 +108,6 @@ class CompetitorUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     official_url: str | None = Field(default=None, min_length=1, max_length=255)
     category: str | None = Field(default=None, max_length=50)
-    description: str | None = None
     status: CompetitorStatus | None = None
     sources: list[MonitorSourceCreate] | None = None
 
@@ -129,12 +127,15 @@ class CompetitorOut(BaseModel):
     name: str
     official_url: str | None = None
     category: str | None = None
-    description: str | None = None
     status: CompetitorStatus
     created_at: datetime
 
     # 该竞品下的监控源（selectin 预加载，直接可读）
     sources: list[MonitorSourceOut] = Field(default_factory=list)
+
+    # 由列表接口聚合填充：
+    changes: int = 0
+    today_changes: int = 0
 
     # ---- 以下为前端展示用的派生字段，均由上面的原始字段/监控源算出 ----
 
@@ -142,11 +143,6 @@ class CompetitorOut(BaseModel):
     @property
     def domain(self) -> str:
         return self.official_url or ""
-
-    @computed_field
-    @property
-    def desc(self) -> str:
-        return self.description or ""
 
     @computed_field
     @property
@@ -225,15 +221,6 @@ class CompetitorOut(BaseModel):
             desc += f"，{len(stopped)} 个页面已停用"
         return desc
 
-    @computed_field
-    @property
-    def changes(self) -> int:
-        return 0  # TODO: 统计 intelligence_events 数量（事件模块落地后接入）
-
-    @computed_field
-    @property
-    def today_changes(self) -> int:
-        return 0
 
     @computed_field
     @property

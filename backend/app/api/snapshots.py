@@ -7,6 +7,7 @@
    前端再用 `<iframe sandbox>` 包一层，双重保证抓来的页面不会执行脚本。
 """
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
@@ -31,9 +32,9 @@ _SAFE_CSP = "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inlin
 
 @router.get("/{snapshot_id}/raw", response_class=HTMLResponse)
 async def snapshot_raw(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     snapshot_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """返回该快照抓取时的原始 HTML（供详情抽屉内嵌 iframe 查看）。"""
     row = (

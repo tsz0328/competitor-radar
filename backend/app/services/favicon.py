@@ -19,6 +19,7 @@ import httpx
 
 from app.core.cache import get_cache
 from app.core.config import get_settings
+from app.core.network import validate_remote_url
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -92,6 +93,8 @@ def _pick_icon_urls(html_text: str, base_url: str) -> list[str]:
 
 async def _is_image(client: httpx.AsyncClient, url: str) -> bool:
     """确认地址真的返回图片——SPA 会把未知路径返回成 HTML，必须校验 content-type。"""
+    if not (await validate_remote_url(url)).ok:
+        return False
     try:
         response = await client.get(url, headers={"Accept": "image/*,*/*;q=0.8"})
     except httpx.HTTPError:
@@ -105,6 +108,8 @@ async def _is_image(client: httpx.AsyncClient, url: str) -> bool:
 async def _probe(host: str) -> str | None:
     """抓首页 HTML → 解析图标候选 → 逐个校验，返回第一个可用的图片地址。"""
     page_url = f"https://{host}/"
+    if not (await validate_remote_url(page_url)).ok:
+        return None
     try:
         async with httpx.AsyncClient(
             follow_redirects=True,

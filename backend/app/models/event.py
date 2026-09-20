@@ -25,7 +25,10 @@ class IntelligenceEvent(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
     competitor_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     source_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("monitor_sources.id"), nullable=True, index=True
+        BigInteger,
+        ForeignKey("monitor_sources.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     snapshot_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("page_snapshots.id"), nullable=True

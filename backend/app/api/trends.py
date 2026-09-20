@@ -3,6 +3,8 @@
 注意路由顺序：`/overview` 必须声明在 `/{competitor_id}` 之前，
 否则 "overview" 会被当成 competitor_id 去解析而报 422。
 """
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,9 +59,9 @@ async def _get_owned_competitor(
 
 @router.get("/overview", response_model=list[TrendPointOut])
 async def trend_overview(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     days: int = Query(default=7, ge=7, le=90),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """全部竞品汇总的变化趋势（Dashboard 的「竞品动态趋势」用）。"""
     return await trend_service.build_series(db, current_user.id, days)
@@ -67,9 +69,9 @@ async def trend_overview(
 
 @router.get("/daily", response_model=list[DailyCountOut])
 async def trend_daily(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     days: int = Query(default=30, ge=7, le=90),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """全部竞品汇总的每日变化总数（工作台趋势图用，点某天可钻取到情报中心）。"""
     return await trend_service.build_daily_totals(db, current_user.id, days)
@@ -77,9 +79,9 @@ async def trend_daily(
 
 @router.get("/compare", response_model=list[CompetitorSeriesOut])
 async def trend_compare(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     days: int = Query(default=30, ge=7, le=90),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """多竞品变化对比：每个竞品各自的每日变化总数序列（趋势分析「竞品对比」用）。"""
     return await trend_service.build_compare_series(db, current_user.id, days)
@@ -87,10 +89,10 @@ async def trend_compare(
 
 @router.get("/{competitor_id}/chart", response_model=list[TrendPointOut])
 async def competitor_chart(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     competitor_id: int,
     days: int = Query(default=30, ge=7, le=90),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """某个竞品的变化趋势序列。"""
     await _get_owned_competitor(db, competitor_id, current_user)
@@ -99,10 +101,10 @@ async def competitor_chart(
 
 @router.get("/{competitor_id}", response_model=TrendInsightOut)
 async def competitor_trend(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     competitor_id: int,
-    period_days: int = Query(default=30, ge=7, le=180, alias="periodDays"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    period_days: int = Query(default=30, ge=7, le=180, alias='periodDays'),
 ):
     """某竞品的趋势洞察；库里没有或已过期（>1 天）时自动生成一次。"""
     competitor = await _get_owned_competitor(db, competitor_id, current_user)

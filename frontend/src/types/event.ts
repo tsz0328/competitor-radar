@@ -50,6 +50,13 @@ export interface EventRecord {
 }
 
 /**
+ * 通知中心一条：事件记录 + 服务端已读态（多端一致）
+ */
+export interface NotificationRecord extends EventRecord {
+  isRead: boolean;
+}
+
+/**
  * 事件流页面：顶部类型统计
  */
 export interface EventSummary {

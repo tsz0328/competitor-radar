@@ -14,6 +14,7 @@ from app.core.llm import get_llm_client
 from app.models.competitor import Competitor
 from app.models.event import IntelligenceEvent
 from app.models.user import User
+from app.services.settings import get_user_llm_config
 
 # 洞察的复用时长：TTL 内直接返回上次结果，超过则重新聚合/生成
 _CACHE_TTL = timedelta(minutes=10)
@@ -77,7 +78,9 @@ async def build_daily_insight(db: AsyncSession, user: User, days: int = 1) -> di
         for event in ranked[:20]
     ]
 
-    narrative = await get_llm_client().daily_insight(
+    # 用当前账号自己的配置（开关 / 模型 / Key）
+    llm_cfg = await get_user_llm_config(db, user.id)
+    narrative = await get_llm_client(llm_cfg).daily_insight(
         period_text=_period_text(days),
         total_events=total,
         high_count=high_count,

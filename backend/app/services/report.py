@@ -3,8 +3,9 @@
 核心原则：**报表里的每一个数字都由数据库聚合得出，AI 只负责措辞**，
 不允许模型生成任何统计数字，避免报告里出现编造的数据。
 """
+import html as html_lib
 from collections import Counter
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,12 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.display import icon_text, icon_tone
 from app.core.event_types import EVENT_TYPE_LABELS, EVENT_TYPE_TAG_CLASS, EventType
 from app.core.llm import get_llm_client
-from app.core.timeutil import format_time, to_local
+from app.core.timeutil import app_timezone, format_time, local_day_start_utc, to_local
 from app.models.competitor import Competitor
 from app.models.event import IntelligenceEvent
 from app.models.source import MonitorSource
 from app.models.user import User
 from app.models.weekly_report import ReportType, WeeklyReport
+from app.services.settings import get_user_llm_config
 
 # 每类事件给一句固定的"可能影响"提示（规则兜底，真实 LLM 会写得更好）
 _IMPACT_HINTS: dict[EventType, str] = {
@@ -39,7 +41,7 @@ def _window(weeks_ago: int = 0) -> tuple[date, date]:
     起始日固定落在周一，这样"第 N 周"与标题里的 ISO 周号、以及环比的上周区间都能对齐。
     本周尚未结束（如周五生成）时结束日取"今天"，避免把未来日期算进统计。
     """
-    today = datetime.now().astimezone().date()
+    today = datetime.now(app_timezone()).date()
     monday = today - timedelta(days=today.weekday())  # weekday(): 周一=0
     start = monday - timedelta(days=_REPORT_WINDOW_DAYS * weeks_ago)
     week_end = start + timedelta(days=_REPORT_WINDOW_DAYS - 1)
@@ -60,6 +62,24 @@ def previous_window() -> tuple[date, date]:
     return _window(1)
 
 
+def window_for(weeks_ago: int = 0) -> tuple[date, date]:
+    """按手动生成接口的周偏移量返回自然周窗口。"""
+    return _window(weeks_ago)
+
+
+async def get_report_for_window(
+    db: AsyncSession, user_id: int, start: date
+) -> WeeklyReport | None:
+    """取某账号在该 range_start 下已生成的第一份周报，保证手动/定时接口幂等。"""
+    result = await db.execute(
+        select(WeeklyReport)
+        .where(WeeklyReport.user_id == user_id, WeeklyReport.range_start == start)
+        .order_by(WeeklyReport.id)
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 async def window_has_report(db: AsyncSession, user_id: int, start: date) -> bool:
     """该自然周是否已生成过报告——定时任务据此避免对同一周重复生成。
 
@@ -76,7 +96,7 @@ async def window_has_report(db: AsyncSession, user_id: int, start: date) -> bool
 
 def _day_start_utc(day: date) -> datetime:
     """把本地日期转成该日 00:00 对应的 UTC 时刻。"""
-    return datetime(day.year, day.month, day.day).astimezone().astimezone(timezone.utc)
+    return local_day_start_utc(day)
 
 
 async def _load_events(
@@ -235,7 +255,7 @@ def _build_ai_steps(
     source_count: int, event_count: int, high_count: int, end: date
 ) -> list[dict]:
     """AI 处理过程的四个步骤（时间以报告生成日为基准）。"""
-    base = datetime(end.year, end.month, end.day, 6, 0).astimezone()
+    base = datetime(end.year, end.month, end.day, 6, 0, tzinfo=app_timezone())
     steps = (
         ("数据采集", f"从 {source_count} 个监控页面抓取竞品公开信息。", 0),
         ("事件识别", f"从采集内容中识别出 {event_count} 条有效变化事件，并完成去重与分类。", 12),
@@ -336,8 +356,9 @@ async def generate_weekly_report(
         )
         competitor_lines.append(f"{name}：{count} 条（{type_text}）")
 
-    # AI 只写叙述：数字全部由上面的聚合结果提供
-    narrative = await get_llm_client().weekly_report(
+    # AI 只写叙述：数字全部由上面的聚合结果提供；配置用报表归属用户自己的
+    llm_cfg = await get_user_llm_config(db, user.id)
+    narrative = await get_llm_client(llm_cfg).weekly_report(
         range_text=range_text,
         total_events=len(current),
         involved_competitors=len(involved),
@@ -407,3 +428,105 @@ def to_detail(report: WeeklyReport) -> dict:
         "content": report.content or "",
         **(report.payload or {}),
     }
+
+
+def to_print_html(report: WeeklyReport) -> str:
+    """把周报渲染成独立可打印页面；浏览器可直接保存为 PDF。"""
+    detail = to_detail(report)
+    esc = html_lib.escape
+
+    stats = "".join(
+        f"""
+        <div class="stat">
+          <span>{esc(item['label'])}</span>
+          <strong>{item['value']}</strong>
+          <small>较上周 {'↑' if item['deltaType'] == 'up' else '↓'} {item['delta']}%</small>
+        </div>"""
+        for item in detail["stats"]
+    )
+    highlights = "".join(
+        f"""
+        <li>
+          <strong>{esc(item['title'])}</strong>
+          <span class="tag">{esc(item['tag'])}</span>
+          <span class="impact">{esc(item['impact'])}</span>
+          <div>{esc(' · '.join(item['points']))}</div>
+        </li>"""
+        for item in detail["highlights"]
+    )
+    related = "".join(
+        f'<li><span class="tag">{esc(item["tag"])}</span>'
+        f'<strong>{esc(item["title"])}</strong>'
+        f"<small>{esc(item['brand'])} · {esc(item['time'])}</small></li>"
+        for item in detail["relatedEvents"]
+    )
+    competitors = "".join(
+        f"<li><strong>{esc(item['name'])}</strong><span>{item['changes']} 条变化</span></li>"
+        for item in detail["relatedCompetitors"]
+    )
+    categories = "".join(
+        f"<li><span>{esc(item['name'])}</span><strong>{item['value']}</strong></li>"
+        for item in detail["categoryDist"]
+    )
+
+    report_meta = (
+        f"{esc(detail['rangeStart'])} ~ {esc(detail['rangeEnd'])} · "
+        f"监控 {detail['competitors']} 个竞品"
+    )
+
+
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{esc(detail['title'])}</title>
+<style>
+:root {{ color: #1f2937; font-family: "Microsoft YaHei", "PingFang SC", sans-serif; }}
+* {{ box-sizing: border-box; }}
+body {{ max-width: 960px; margin: 0 auto; padding: 32px; background: #fff; }}
+h1 {{ font-size: 26px; margin: 0 0 8px; }}
+h2 {{ margin-top: 28px; font-size: 18px; border-bottom: 1px solid #dbe4f0; padding-bottom: 8px; }}
+.meta {{ color: #667085; margin-bottom: 24px; }}
+.summary {{ line-height: 1.8; }}
+.stats {{ display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 12px; }}
+.stat {{ padding: 14px; border: 1px solid #dbe4f0; border-radius: 8px; }}
+.stat span, .stat small {{ display: block; color: #667085; font-size: 12px; }}
+.stat strong {{ display: block; font-size: 24px; margin: 4px 0; }}
+ul {{ padding-left: 20px; line-height: 1.75; }}
+li {{ margin-bottom: 8px; }}
+.tag {{
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 12px;
+  margin: 0 6px;
+}}
+.impact {{ color: #dc2626; font-size: 12px; }}
+.content {{ white-space: pre-wrap; line-height: 1.8; }}
+.print {{ position: fixed; right: 24px; top: 20px; padding: 8px 14px; border: 0;
+  border-radius: 6px; background: #4f46e5; color: #fff; cursor: pointer; }}
+@media print {{ body {{ padding: 0; }} .print {{ display: none; }} }}
+</style>
+</head>
+<body>
+<button class="print" onclick="window.print()">打印 / 保存 PDF</button>
+<h1>{esc(detail['title'])}</h1>
+<div class="meta">{report_meta}</div>
+<h2>核心摘要</h2>
+<div class="summary">{esc(detail['summary'])}</div>
+<div class="stats">{stats}</div>
+<h2>重点变化</h2>
+<ul>{highlights or '<li>本期没有重点变化</li>'}</ul>
+<h2>竞争动态</h2>
+<ul>{competitors or '<li>本期暂无涉及竞品</li>'}</ul>
+<h2>事件类型分布</h2>
+<ul>{categories or '<li>本期没有检测到变化</li>'}</ul>
+<h2>相关事件</h2>
+<ul>{related or '<li>本期没有关联事件</li>'}</ul>
+<h2>AI 正文</h2>
+<div class="content">{esc(detail['content'] or '本期报告暂无 AI 正文')}</div>
+</body>
+</html>"""

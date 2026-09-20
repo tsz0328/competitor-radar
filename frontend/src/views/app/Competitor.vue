@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox, ElNotification } from "element-plus";
 import { useCompetitorStore } from "@/stores/competitor";
 import type { CompetitorItem, CrawlResult } from "@/types/competitor";
@@ -16,6 +17,42 @@ import {
 } from "@element-plus/icons-vue";
 
 const store = useCompetitorStore();
+const route = useRoute();
+const router = useRouter();
+
+// 接收跨页跳转带进来的定位参数：高亮某竞品 / 仅看今日变化 / 关键词预填
+const highlightId = ref<number | null>(null);
+const todayOnly = ref(false);
+
+function syncFromQuery() {
+  const q = route.query;
+  const cid = typeof q.competitorId === "string" ? q.competitorId : "";
+  if (cid) {
+    const id = Number(cid);
+    highlightId.value = id;
+    // 跳到该竞品所在的分页，确保用户在当前视口能看到高亮项
+    const idx = filteredList.value.findIndex((c) => c.id === id);
+    if (idx >= 0) page.value = Math.floor(idx / pageSize.value) + 1;
+  } else {
+    highlightId.value = null;
+  }
+  todayOnly.value = q.filter === "todayActive";
+  const kw = typeof q.keyword === "string" ? q.keyword : "";
+  if (kw) keyword.value = kw;
+}
+
+/** 把 filter/competitorId 写回 URL，便于分享与前进后退回到同一视图 */
+function syncQuery() {
+  const q: Record<string, string> = {};
+  if (todayOnly.value) q.filter = "todayActive";
+  if (highlightId.value) q.competitorId = String(highlightId.value);
+  router.replace({ name: "Competitor", query: q });
+}
+
+function toggleTodayOnly() {
+  todayOnly.value = !todayOnly.value;
+  syncQuery();
+}
 
 const keyword = ref("");
 const statusFilter = ref("");
@@ -57,7 +94,14 @@ const onResize = () => fitActionColumn();
 onMounted(async () => {
   await store.loadCompetitors();
   fitActionColumn();
+  syncFromQuery();
 });
+
+// 从其它页面带 query 跳回来（如情报中心点的竞品名）→ 重新定位/过滤
+watch(
+  () => route.query,
+  () => syncFromQuery(),
+);
 
 window.addEventListener("resize", onResize);
 onBeforeUnmount(() => window.removeEventListener("resize", onResize));
@@ -88,7 +132,8 @@ const filteredList = computed(() => {
       !statusFilter.value || item.statusLabel === statusFilter.value;
     const matchCategory =
       !categoryFilter.value || item.category === categoryFilter.value;
-    return matchKeyword && matchStatus && matchCategory;
+    const matchToday = !todayOnly.value || item.todayChanges > 0;
+    return matchKeyword && matchStatus && matchCategory && matchToday;
   });
 });
 
@@ -141,6 +186,11 @@ function openEdit(item: CompetitorItem) {
   dialogVisible.value = true;
 }
 
+/** 从「最近变化」钻取到该竞品的全部情报 */
+function goToEvents(item: CompetitorItem) {
+  router.push({ name: "Event", query: { competitorId: String(item.id) } });
+}
+
 /** 删除后若当前页已空，自动回退一页，避免停在空白页 */
 function clampPage() {
   const maxPage = Math.max(1, Math.ceil(total.value / pageSize.value));
@@ -150,7 +200,7 @@ function clampPage() {
 async function handleDelete(item: CompetitorItem) {
   try {
     await ElMessageBox.confirm(
-      `确定删除「${item.name}」吗？该竞品的监控配置与历史快照将一并删除，且不可恢复。`,
+      `确定删除「${item.name}」吗？该竞品的监控配置将一并删除，历史快照和情报事件会保留用于回溯，且不可恢复。`,
       "删除竞品",
       {
         type: "warning",
@@ -286,6 +336,12 @@ async function handleRevive(item: CompetitorItem) {
             :value="opt.value"
           />
         </el-select>
+        <el-button
+          :type="todayOnly ? 'primary' : 'default'"
+          plain
+          @click="toggleTodayOnly"
+          >仅看今日变化</el-button
+        >
       </div>
       <!-- 右侧按钮 -->
       <div class="toolbar-right">
@@ -333,7 +389,7 @@ async function handleRevive(item: CompetitorItem) {
       <el-table ref="tableRef" :data="pagedList" height="100%" style="width: 100%">
         <el-table-column label="竞品信息" min-width="260">
           <template #default="{ row }">
-            <div class="competitor-info">
+            <div class="competitor-info" :class="{ 'row-highlight': row.id === highlightId }">
               <CompetitorLogo
                 :name="row.name"
                 :domain="row.domain"
@@ -351,7 +407,6 @@ async function handleRevive(item: CompetitorItem) {
                     >{{ row.category }}</el-tag
                   >
                 </div>
-                <div class="competitor-desc">{{ row.desc }}</div>
                 <div class="competitor-domain">
                   {{ displayDomain(row.domain) }}
                 </div>
@@ -405,13 +460,18 @@ async function handleRevive(item: CompetitorItem) {
           </template>
         </el-table-column>
 
-        <el-table-column label="最近变化" min-width="120">
+        <el-table-column label="最近变化" min-width="140">
           <template #default="{ row }">
-            <div class="changes">
+            <div
+              class="changes changes-link"
+              @click="goToEvents(row)"
+              title="查看该竞品的全部情报"
+            >
               <div class="changes-count">{{ row.changes }} 条</div>
               <div class="changes-today" :class="{ up: row.todayChanges > 0 }">
                 今天 {{ row.todayChanges > 0 ? "+" : "" }}{{ row.todayChanges }}
               </div>
+              <div class="changes-hint">查看情报 →</div>
             </div>
           </template>
         </el-table-column>
@@ -481,7 +541,7 @@ async function handleRevive(item: CompetitorItem) {
           :md="8"
           :lg="6"
         >
-          <div class="competitor-card">
+          <div class="competitor-card" :class="{ 'card-highlight': item.id === highlightId }">
             <div class="card-header">
               <CompetitorLogo
                 :name="item.name"
@@ -499,7 +559,6 @@ async function handleRevive(item: CompetitorItem) {
                 >
               </div>
             </div>
-            <div class="card-desc">{{ item.desc }}</div>
             <div class="card-row">
               <span class="label">最近抓取</span>
               <span>{{ item.lastFetchAgo }}</span>
@@ -518,12 +577,12 @@ async function handleRevive(item: CompetitorItem) {
                 <span class="card-status-desc">{{ item.statusDesc }}</span>
               </div>
             </div>
-            <div class="card-row">
+            <div class="card-row card-row-link" @click="goToEvents(item)">
               <span class="label">最近变化</span>
-              <span
+              <span class="link-text"
                 >{{ item.changes }} 条 / 今天
                 {{ item.todayChanges > 0 ? "+" : ""
-                }}{{ item.todayChanges }}</span
+                }}{{ item.todayChanges }} →</span
               >
             </div>
             <div class="card-actions">
@@ -680,10 +739,6 @@ async function handleRevive(item: CompetitorItem) {
   border-radius: 100vmax;
   border: none;
 }
-.competitor-desc {
-  font-size: 0.9vmax;
-  color: var(--app-text-color-secondary);
-}
 .competitor-domain {
   font-size: 0.8vmax;
   color: var(--app-text-color-placeholder);
@@ -803,6 +858,37 @@ async function handleRevive(item: CompetitorItem) {
   color: var(--el-color-danger);
 }
 
+/* 「最近变化」可点击钻取到该竞品情报 */
+.changes-link {
+  cursor: pointer;
+  padding: 0.4vh 0.4vw;
+  margin: -0.4vh -0.4vw;
+  border-radius: 0.4vmax;
+  transition: background 0.15s;
+}
+.changes-link:hover {
+  background: var(--app-color-blue-light-5);
+}
+.changes-hint {
+  font-size: 0.8vmax;
+  color: var(--app-color-primary);
+  margin-top: 0.2vh;
+}
+/* 跨页定位高亮 */
+.row-highlight {
+  box-shadow: inset 3px 0 0 var(--app-color-primary);
+}
+.card-row-link {
+  cursor: pointer;
+}
+.card-row-link .link-text {
+  color: var(--app-color-primary);
+}
+.card-highlight {
+  outline: 2px solid var(--app-color-primary);
+  outline-offset: -2px;
+}
+
 /* 操作 */
 .actions {
   display: flex;
@@ -854,11 +940,6 @@ async function handleRevive(item: CompetitorItem) {
 .card-title .name {
   font-weight: 600;
   font-size: 1.05vmax;
-}
-.card-desc {
-  font-size: 0.9vmax;
-  color: var(--app-text-color-secondary);
-  margin-bottom: 1vh;
 }
 .card-row {
   display: flex;

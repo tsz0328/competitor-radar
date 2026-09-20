@@ -1,5 +1,6 @@
 // 引入两个vue-router的函数
 import { createRouter, createWebHistory } from "vue-router";
+import { readToken } from "@/utils/authStorage";
 
 // 引入路由组件
 const Landing = () => import("@/views/StandAlone/Landing.vue");
@@ -9,10 +10,12 @@ const AppLayout = () => import("@/layouts/AppLayout/AppLayout.vue");
 
 const Dashboard = () => import("@/views/app/Dashboard.vue");
 const Competitor = () => import("@/views/app/Competitor.vue");
+const CrawlLog = () => import("@/views/app/CrawlLog.vue");
 const Event = () => import("@/views/app/Event.vue");
 const Report = () => import("@/views/app/Report.vue");
 const Trend = () => import("@/views/app/Trend.vue");
 const Setting = () => import("@/views/app/Setting.vue");
+const UserManage = () => import("@/views/app/UserManage.vue");
 
 
 // 创建路由实例，传入一个配置对象
@@ -48,6 +51,11 @@ const router = createRouter({
                     name: "Competitor"
                 },
                 {
+                    path: "crawl-log",
+                    component: CrawlLog,
+                    name: "CrawlLog"
+                },
+                {
                     path: "event",
                     component: Event,
                     name: "Event"
@@ -66,6 +74,11 @@ const router = createRouter({
                     path: "setting",
                     component: Setting,
                     name: "Setting"
+                },
+                {
+                    path: "user-manage",
+                    component: UserManage,
+                    name: "UserManage"
                 }
             ]
         }
@@ -73,7 +86,8 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  const token = localStorage.getItem("token");
+  // token 可能在 localStorage（记住我）或 sessionStorage（仅本次会话）
+  const token = readToken();
   if (to.path !== "/login" && to.path !== "/" && !token) {
     return "/login";
   }

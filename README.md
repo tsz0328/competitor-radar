@@ -88,7 +88,11 @@
 ├── frontend/                # Vue3 前端
 │
 ├── docs/                    # 项目文档
-│   └── architecture.md
+│   ├── architecture.md      # 技术方案：架构 / 数据模型 / API 清单
+│   ├── page-design.md       # 页面设计与信息架构：职责边界 / 跳转矩阵 / 空状态
+│   ├── data-source-design.md
+│   ├── milestones.md
+│   └── positioning.md
 │
 ├── README.md
 ├── LICENSE
@@ -173,7 +177,7 @@ docker compose up --build
 - [x] 趋势分析与周报（趋势洞察 + 周报生成与列表/详情）
 - [x] Dashboard / 事件流 / AI 报告 / 趋势分析页面接真实接口
 - [x] 任务调度（APScheduler 进程内调度：按各源频率自动抓取 + 每周自动生成周报）
-- [x] 通知推送（可选，默认关闭；支持日志 / 邮件后端）
+- [x] 通知推送（可选，默认关闭；支持日志 / 邮件后端）+ 前端通知中心（高优事件、服务端已读态、多端一致）
 - [x] Playwright 渲染兜底（SPA 官网可抓；静态页仍走 httpx 毫秒级返回）
 - [x] Docker 部署（compose 一键起 MySQL/Redis/后端/Nginx + Alembic 迁移）
 
@@ -188,7 +192,7 @@ docs/positioning.md         # 产品定位：目标用户 / 核心场景 / 数�
 docs/architecture.md        # 技术方案：架构 / 数据模型 / API 清单
 docs/data-source-design.md  # 数据源抽象：source_type 注册表与策略接口
 docs/milestones.md          # 里程碑与执行清单
-docs/page-design.md         # 首页设计
+docs/page-design.md         # 页面设计与信息架构：职责边界 / 跳转矩阵 / 空状态
 ```
 
 ---

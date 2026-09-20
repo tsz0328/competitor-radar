@@ -59,6 +59,21 @@ def _migrate_dev_columns(conn) -> None:
         ("weekly_reports", "favorite", "BOOLEAN NOT NULL DEFAULT 0"),
         # 用户级偏好（跟随账号，原先在前端 localStorage）：新增列，老 dev.db 补上
         ("users", "preferences", "JSON"),
+        # 供应商从上游获取到的模型列表（JSON 数组）：新增列，老 dev.db 补上
+        ("llm_providers", "models", "TEXT NOT NULL DEFAULT ''"),
+        # AI 配置按用户隔离：老 dev.db 补上归属列（存量归最早用户，开发库通常就是 1）
+        ("llm_providers", "user_id", "BIGINT NOT NULL DEFAULT 1"),
+        ("app_settings", "user_id", "BIGINT NOT NULL DEFAULT 1"),
+        # 用户中心：头像（data URL），老 dev.db 补上
+        ("users", "avatar", "TEXT"),
+        # 用户中心：展示用昵称，老 dev.db 补上（空串表示未设置）
+        ("users", "nickname", "VARCHAR(50) NOT NULL DEFAULT ''"),
+        # 用户中心：密码位数（仅存长度，不存明文），老 dev.db 补上
+        ("users", "password_length", "INTEGER"),
+        # 管理员标记：老 dev.db 补上
+        ("users", "is_admin", "BOOLEAN NOT NULL DEFAULT 0"),
+        # 账号启用状态（管理员可停用）：老 dev.db 补上，默认启用
+        ("users", "is_active", "BOOLEAN NOT NULL DEFAULT 1"),
     ]
     for table, column, ctype in additions:
         try:

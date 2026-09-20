@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 
 from app.core.config import get_settings
 from app.core.llm import get_llm_client
+from app.core.runtime_config import LLMConfig
 from app.services import crawler
 
 settings = get_settings()
@@ -130,14 +131,15 @@ async def _verify_domain(domain: str) -> str | None:
 
 
 async def suggest_competitor(
-    name: str, categories: list[str], use_llm: bool = True
+    cfg: LLMConfig, name: str, categories: list[str], use_llm: bool = True
 ) -> SuggestResult:
+    """按传入的用户配置做智能预填（调用方先按 user_id 解析出 cfg）。"""
     name = (name or "").strip()
     if not name:
         return SuggestResult(None, None, "none", "请输入竞品名称")
 
     category: str | None = None
-    llm = get_llm_client()
+    llm = get_llm_client(cfg)
     # 仅当显式允许且 LLM 可用时才调 AI；否则（用户自己填竞品的自动预填）直接走规则探测
     if use_llm and llm.enabled:
         profile = await llm.brand_profile(name, categories)

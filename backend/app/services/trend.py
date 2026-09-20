@@ -14,6 +14,7 @@ from app.models.competitor import Competitor
 from app.models.event import IntelligenceEvent
 from app.models.trend import TrendDirection, TrendInsight
 from app.schemas.trend import TrendPointOut
+from app.services.settings import get_user_llm_config
 
 # 五类事件各自一条折线，与前端 TrendChart 一一对应
 _SERIES_EVENT_TYPES = {
@@ -214,7 +215,9 @@ async def generate_insight(
     highlights = [
         f"{EVENT_TYPE_LABELS[event.event_type]}：{event.title}" for event in events[:4]
     ]
-    judgment = await get_llm_client().trend_judgment(
+    # 用竞品归属用户自己的配置（开关 / 模型 / Key）
+    llm_cfg = await get_user_llm_config(db, competitor.user_id)
+    judgment = await get_llm_client(llm_cfg).trend_judgment(
         competitor_name=competitor.name,
         period_days=period_days,
         daily_counts=weighted,

@@ -1,8 +1,13 @@
+import logging
 import re
+import shutil
 from dataclasses import asdict
+from datetime import datetime
+from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -16,7 +21,10 @@ from app.core.exceptions import (
 )
 from app.core.http_errors import explain_http_status
 from app.core.source_registry import SourceType, get_source_config
+from app.core.timeutil import app_timezone, local_day_start_utc
 from app.models.competitor import Competitor
+from app.models.event import IntelligenceEvent
+from app.models.snapshot import PageSnapshot
 from app.models.source import MonitorSource
 from app.models.user import User
 from app.schemas.competitor import (
@@ -36,6 +44,7 @@ from app.schemas.source import (
     UrlCheckRequest,
     UrlCheckResult,
 )
+from app.services import settings as settings_service
 from app.services.analyzer import (
     STATUS_FAILED,
     STATUS_SUCCESS,
@@ -47,14 +56,65 @@ from app.services.favicon import resolve_favicon
 from app.services.suggester import suggest_competitor
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/competitors", tags=["competitors"])
 
 
+def _remove_storage_folder(folder: Path) -> None:
+    root = Path(settings.storage_dir).resolve()
+    target = folder.resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        logger.warning("拒绝删除存储目录外的路径：%s", target)
+        return
+    if target.exists():
+        try:
+            shutil.rmtree(target, ignore_errors=False)
+        except OSError:
+            logger.exception("删除竞品存储目录失败：%s", target)
+
+
+async def _with_change_counts(
+    db: AsyncSession, competitors: list[Competitor]
+) -> list[CompetitorOut]:
+    ids = [competitor.id for competitor in competitors]
+    if not ids:
+        return [CompetitorOut.model_validate(competitor) for competitor in competitors]
+
+    total_stmt = (
+        select(IntelligenceEvent.competitor_id, func.count())
+        .where(IntelligenceEvent.competitor_id.in_(ids))
+        .group_by(IntelligenceEvent.competitor_id)
+    )
+    today_start = local_day_start_utc(datetime.now(app_timezone()).date())
+    today_stmt = (
+        select(IntelligenceEvent.competitor_id, func.count())
+        .where(
+            IntelligenceEvent.competitor_id.in_(ids),
+            IntelligenceEvent.created_at >= today_start,
+        )
+        .group_by(IntelligenceEvent.competitor_id)
+    )
+    totals = dict((await db.execute(total_stmt)).all())
+    todays = dict((await db.execute(today_stmt)).all())
+
+    return [
+        CompetitorOut.model_validate(competitor).model_copy(
+            update={
+                "changes": totals.get(competitor.id, 0),
+                "today_changes": todays.get(competitor.id, 0),
+            }
+        )
+        for competitor in competitors
+    ]
+
+
 @router.post("/check-url", response_model=UrlCheckResult)
 async def check_source_url(
+    _: Annotated[User, Depends(get_current_user)],
     payload: UrlCheckRequest,
-    _: User = Depends(get_current_user),
 ) -> UrlCheckResult:
     """保存竞品前，先悄悄探一下某个监控网址是否可达。
 
@@ -90,8 +150,8 @@ async def check_source_url(
 
 @router.post("/discover-sources", response_model=DiscoverResult)
 async def discover_source_urls(
+    _: Annotated[User, Depends(get_current_user)],
     payload: DiscoverRequest,
-    _: User = Depends(get_current_user),
 ) -> DiscoverResult:
     """按官网首页里的链接，自动寻找定价页/更新日志/博客/文档/状态页/RSS 的地址。
 
@@ -114,17 +174,19 @@ async def discover_source_urls(
 
 @router.post("/suggest", response_model=SuggestResult)
 async def suggest_competitor_profile(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     payload: SuggestRequest,
-    _: User = Depends(get_current_user),
 ) -> SuggestResult:
     """根据竞品名称，智能预填「官网地址」与「分类」。
 
     只读探测（不落库）：use_llm=True 时优先让 LLM 推断域名/分类并探活（「智能检测填充」按钮）；
     use_llm=False 时只用规则域名探测、不调 AI（用户自己填竞品时的自动预填）。
-    无 Key 时两种分支都会退回常见域名探测。
+    无 Key 时两种分支都会退回常见域名探测；AI 能力用**当前账号自己**的配置。
     """
+    llm_cfg = await settings_service.get_user_llm_config(db, current_user.id)
     result = await suggest_competitor(
-        payload.name, payload.categories, use_llm=payload.use_llm
+        llm_cfg, payload.name, payload.categories, use_llm=payload.use_llm
     )
     return SuggestResult(
         official_url=result.official_url,
@@ -213,9 +275,9 @@ def _sync_sources(competitor: Competitor, incoming: list[MonitorSourceCreate]) -
 
 @router.post("", response_model=CompetitorOut, status_code=status.HTTP_201_CREATED)
 async def create_competitor(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     payload: CompetitorCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """新增竞品（连同要监控的页面），自动归属当前登录用户。
 
@@ -239,20 +301,21 @@ async def create_competitor(
 
 @router.get("", response_model=list[CompetitorOut])
 async def list_competitors(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
     """只返回当前用户自己的竞品。"""
     result = await db.execute(
         select(Competitor).where(Competitor.user_id == current_user.id).order_by(Competitor.id)
     )
-    return result.scalars().all()
+    competitors = list(result.scalars().all())
+    return await _with_change_counts(db, competitors)
 
 
 @router.get("/favicon", response_model=FaviconOut)
 async def competitor_favicon(
+    current_user: Annotated[User, Depends(get_current_user)],
     domain: str,
-    current_user: User = Depends(get_current_user),
 ):
     """解析竞品官网的真实图标地址（读首页 HTML 的 <link rel="icon">，按域名缓存）。
 
@@ -265,19 +328,19 @@ async def competitor_favicon(
 
 @router.get("/{competitor_id}", response_model=CompetitorOut)
 async def get_competitor(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     competitor_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     return await _get_owned(db, competitor_id, current_user)
 
 
 @router.patch("/{competitor_id}", response_model=CompetitorOut)
 async def update_competitor(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     competitor_id: int,
     payload: CompetitorUpdate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """局部更新：只改请求里实际传了的字段；sources 传了就整份对齐监控源。"""
     competitor = await _get_owned(db, competitor_id, current_user)
@@ -300,9 +363,9 @@ async def update_competitor(
 
 @router.post("/{competitor_id}/revive-sources", response_model=CompetitorOut)
 async def revive_sources(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     competitor_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """重新启用被「连续失败自动停用」的监控源，并清零失败计数。
 
@@ -335,9 +398,9 @@ async def revive_sources(
 
 @router.post("/{competitor_id}/crawl", response_model=CrawlResult)
 async def crawl_competitor(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     competitor_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """立即抓取该竞品下所有启用的监控页面（里程碑 6 的手动触发入口）。
 
@@ -366,11 +429,25 @@ async def crawl_competitor(
 
 @router.delete("/{competitor_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_competitor(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
     competitor_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     competitor = await _get_owned(db, competitor_id, current_user)
+    source_ids = [source.id for source in competitor.sources]
+    if source_ids:
+        await db.execute(
+            update(IntelligenceEvent)
+            .where(IntelligenceEvent.source_id.in_(source_ids))
+            .values(source_id=None)
+        )
+        await db.execute(
+            update(PageSnapshot)
+            .where(PageSnapshot.source_id.in_(source_ids))
+            .values(source_id=None)
+        )
+    storage_folder = Path(settings.storage_dir) / str(competitor_id)
     await db.delete(competitor)
     await db.commit()
+    _remove_storage_folder(storage_folder)
     # 204：删除成功，没有响应体

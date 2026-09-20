@@ -3,8 +3,8 @@ import axios, {
   type InternalAxiosRequestConfig,
   type AxiosResponse,
 } from "axios";
-import router from "@/router";
 import { ElMessage } from "element-plus";
+import { clearAuth, readToken } from "@/utils/authStorage";
 
 const request: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE ?? "", // dev 期留空，兼容 vite-plugin-mock
@@ -21,9 +21,10 @@ const request: AxiosInstance = axios.create({
 export const LONG_REQUEST_TIMEOUT = 180_000;
 
 // 请求拦截器：自动附加 token
+// token 可能在 localStorage（记住我）或 sessionStorage（仅本次会话），统一从 utils 读
 request.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem("token");
+    const token = readToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
   },
@@ -62,12 +63,13 @@ request.interceptors.response.use(
     // 用百位段判断，覆盖 40100~40199，也兼容以后新增的 401 子码
     const isAuthError = code !== undefined && Math.floor(code / 100) === 401;
     if (isAuthError) {
-      localStorage.removeItem("token");
+      clearAuth(); // 两个介质都要清，避免残留旧令牌
       ElMessage.error(serverMsg || "登录已过期，请重新登录");
       // 登录/注册接口本身不要跳登录页，避免「正在登录却被踢去登录」
       const url = error.config?.url ?? "";
       if (!url.includes("/auth/login") && !url.includes("/auth/register")) {
-        router.push({ name: "Login" });
+        // 整页重载跳登录：清空 Pinia 里上一账号的数据，避免换账号后还看得到旧内容
+        window.location.assign("/login");
       }
     } else {
       ElMessage.error(serverMsg || error.message || "网络错误");

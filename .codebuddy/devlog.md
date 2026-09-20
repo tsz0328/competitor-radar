@@ -153,3 +153,23 @@
 - 改动：新建 `src/types/trend.ts`；`TrendChart.vue` 删除 export interface 改为 import type；`Dashboard.vue` 类型导入路径同步切换。
 - 新增约定：**凡是会被组件、视图、API 中两层及以上共用的类型，一律放 `src/types/*.ts`，禁止在 `.vue` 文件内 export 类型。**
 - 备注：Volar/ts-server 对 `.vue` 模块形状有缓存，改完后若编辑器仍报旧错误，重启 TS Server 即可。
+
+### 2026-09-19 — 落地页 `#preview` 区块同步真实骨架 + 微动效 + 演示入口（方案 ①②③）
+- 背景：用户截图指出落地页 `#preview` 区块「还是没变」。上一轮 A+C 的范围只在弹窗外壳 `DemoShell`，`#preview` 是我明确承诺不碰的区域（且受 `rules/scope.md` 约束）。本轮用户确认 ①②③ 全做。
+- 操作：
+  1. **① 骨架同步**：`Landing.vue` 的 `#preview` 区块重排为「左侧栏（Logo + 菜单 + 底部账号区）+ 右（顶栏 + 内容区）」，与 `AppLayout` 一致。顶栏由「Logo + 铃铛 + 头像」改为「真实模型徽标 + 通知铃铛（角标 3）+ 帮助」；Logo 从顶栏移到侧栏顶部；激活态蓝→紫（`--app-color-purple` + `-light-3`）。
+  2. **② 菜单接单一数据源**：区块内硬编码的 6 项菜单改为 `v-for="m in NAV_MENUS"`，与真实侧边栏 / `DemoShell` 共用 `src/data/navMenu.ts`（当前高亮项写死 `Dashboard`）。
+  3. **③ 微动效 + 演示入口**：区块上方新增标题行（「产品预览」+ 副标题 + 右侧「观看完整演示」按钮），按钮走 `openDemo(0)` 打开弹窗。
+- 顺手对齐（2 行，超出①的骨架范围，已在回复中向用户说明）：统计卡名与真实 `Dashboard.vue` 对齐——「新增事件」→「今日情报」、「AI 报告」→「重点变化」（真实四卡：监控竞品 / 今日情报 / 重点变化 / 风险提醒）。
+- **微动效设计（与弹窗 DemoPlayer 刻意拉开梯度）**：
+  - 四件事：数字 0→终值滚动（rAF，760ms 三次缓出）、三条主折线描出（`pathLength="1"` + dashoffset，CSS 错开 0/0.12/0.24s）、面积渐变淡入（delay 0.45s）、三条 AI 洞察逐条上浮（6px + stagger 0.28/0.4/0.52s）。
+  - **不放光标、不放焦点遮罩、不做幕切换** —— 这三样是弹窗的专属语言，用在同一屏里就会和弹窗撞脸。位移一律 ≤6px、总时长 ≤1.4s。
+  - 触发：新开一个 `IntersectionObserver`（threshold 0.2）观察 `#preview`，进入视口加 `.is-in`，**只播一次**（播完 `disconnect()`），滚回去不重播。
+  - 降级：`prefers-reduced-motion: reduce` 时 JS 直接落终态（`previewIn = true` + 数字直取终值），CSS 再用媒体查询关掉全部 transition，避免残留半透明。
+- **`DemoPlayer.vue` 新增 `initialScene` prop**（`withDefaults` 默认 0、越界夹取）：`onMounted` 里把 `apply(0)` 改为 `apply(sceneStarts[startIdx])`。弹窗带 `destroy-on-close`，每次打开都会重置到该幕。
+- 结构性改动的一个巧合：`#preview` 的 `<section class="preview-main-content">` 层级由 `dashboard > main > section` 变为 `dashboard > container > section`，**缩进恰好不变**，因此内容区（stats / 图表 / 洞察）的 template 无需整段重写，只做微动效相关的点改。
+- 结果：`vue-tsc --noEmit` exit 0 全绿。无头 Chromium 截图核对：骨架（侧栏 Logo / 8 项 / 紫高亮 / 账号区、顶栏三元素）、标题行 + 按钮、动画终态（数字 12/28/6/3、三条折线完整描出、三条洞察可见）全部正确；点入口按钮后弹窗从第 1 幕「竞品管理」起播。验证截图留在 `.codebuddy/verify-preview-final.png`、`.codebuddy/verify-dialog-scene1.png`。
+- **新增可复用验证手法（两条，下次直接用）**：
+  1. 落地页虽有 `#preview` 锚点，但 hash 滚动会被 Vue Router 的 scrollBehavior 覆盖（初始导航结束后回顶）→ 写临时页把落地页装进 **1440×900 的 iframe**（同源可直接读 `contentDocument`），用 `setInterval` 反复 `scrollIntoView({block:'start', behavior:'instant'})` 覆盖 router 的回顶，再截图。
+  2. `--force-prefers-reduced-motion` 可用来截「动画终态」——`--virtual-time-budget` 推不动 rAF 与 CSS transition，普通截图只能截到动画中途（本轮截到数字 9/20/4/2、折线只描一小段、洞察未浮现，正是这个原因，不是代码问题）。
+- 未做：`#preview` 的卡片视觉仍比真实 `Dashboard.vue` 简化（如真实 stat-card 带图标）；`Landing.vue` 的 hero 区及其余区块未动。

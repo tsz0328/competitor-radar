@@ -21,6 +21,7 @@ ERR_ACCOUNT_EXISTS = 40001        # 注册时账号已存在
 ERR_BAD_CREDENTIALS = 40101       # 登录：账号或密码错误
 ERR_TOKEN_INVALID = 40102         # 令牌无效或已过期
 ERR_TOKEN_USER_GONE = 40103       # 令牌里的用户已被删除
+ERR_ACCOUNT_DISABLED = 40104      # 账号已被停用（登录 / 携带令牌访问时拦截）
 ERR_USER_NOT_FOUND = 40402        # 查询用户：不存在
 ERR_COMPETITOR_NOT_FOUND = 40401  # 查询竞品：不存在
 ERR_EVENT_NOT_FOUND = 40403       # 查询情报事件：不存在
@@ -28,9 +29,18 @@ ERR_REPORT_NOT_FOUND = 40404      # 查询周报：不存在
 ERR_INVALID_SOURCE = 40002        # 新建监控源：缺少可用网址
 ERR_NO_ENABLED_SOURCE = 40003     # 手动抓取：该竞品没有启用的监控页面
 ERR_LLM_CONFIG_INVALID = 40004    # 保存模型设置：启用时配置不完整
+ERR_OLD_PASSWORD_WRONG = 40005    # 修改密码：原密码不正确（注意别用 401xx，前端会当成登录失效）
+ERR_EMAIL_INVALID = 40006         # 用户中心：邮箱格式不正确
+ERR_PASSWORD_TOO_SHORT = 40007    # 管理员重置密码：长度不足
+ERR_FORBIDDEN = 40300           # 需要管理员权限
 
 # 前端据此判断是否清除 token 并跳登录页
-AUTH_ERROR_CODES = {ERR_BAD_CREDENTIALS, ERR_TOKEN_INVALID, ERR_TOKEN_USER_GONE}
+AUTH_ERROR_CODES = {
+    ERR_BAD_CREDENTIALS,
+    ERR_TOKEN_INVALID,
+    ERR_TOKEN_USER_GONE,
+    ERR_ACCOUNT_DISABLED,
+}
 
 # 通用 HTTP 状态码 → 中文提示（仅当后端没给自定义文案时兜底，覆盖 "Not Found" 这类英文默认）
 HTTP_STATUS_MESSAGES: dict[int, str] = {

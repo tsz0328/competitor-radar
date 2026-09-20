@@ -69,6 +69,7 @@ export function fetchCompetitors(): Promise<CompetitorItem[]> {
 }
 
 /** 新增竞品（连同要监控的页面） */
+
 export function createCompetitor(
   payload: CompetitorCreatePayload,
 ): Promise<CompetitorItem> {
@@ -83,10 +84,7 @@ export function updateCompetitor(
   return request.patch<unknown, CompetitorItem>(`/api/competitors/${id}`, payload);
 }
 
-/** 删除竞品（连同其监控源，后端 204 无响应体） */
-export function deleteCompetitor(id: number): Promise<void> {
-  return request.delete<unknown, void>(`/api/competitors/${id}`);
-}
+
 
 /**
  * 立即抓取该竞品下所有启用的监控页面。
@@ -102,7 +100,13 @@ export function crawlCompetitor(id: number): Promise<CrawlResult> {
   );
 }
 
+/** 删除竞品监控配置，历史快照和情报事件保留；后端 204 无响应体 */
+export function deleteCompetitor(id: number): Promise<void> {
+  return request.delete<unknown, void>(`/api/competitors/${id}`);
+}
+
 /** 一键重新启用被「连续失败自动停用」的监控源，并清零失败计数 */
+
 export function reviveSources(id: number): Promise<CompetitorItem> {
   return request.post<unknown, CompetitorItem>(
     `/api/competitors/${id}/revive-sources`,

@@ -9,8 +9,9 @@ import {
   ArrowLeft,
   ArrowRight,
 } from "@element-plus/icons-vue";
-import { Radar } from "@/components/Icons";
+import Logo from "@/components/Logo.vue";
 import BrandPanel from "@/views/StandAlone/Login/BrandPanel.vue";
+import { readRememberPreference } from "@/utils/authStorage";
 import { ElMessage } from "element-plus";
 
 const router = useRouter();
@@ -19,7 +20,14 @@ const router = useRouter();
 const activeTab = ref<"login" | "register">("login");
 
 // 表单数据
-const loginForm = reactive({ account: "", password: "", remember: false });
+// 「记住我」：勾选 → 登录态存 localStorage（关掉浏览器仍登录，后端签长期令牌）；
+//            不勾 → 只存 sessionStorage（关掉浏览器需重新登录，后端签会话令牌）
+// 默认值取上次登录时的选择，常见用户预期是「上次勾了这次还勾着」
+const loginForm = reactive({
+  account: "",
+  password: "",
+  remember: readRememberPreference(),
+});
 const registerForm = reactive({
   account: "",
   password: "",
@@ -33,7 +41,11 @@ const {
 
 // 登录提交
 const onLogin = () => {
-  doLogin({ account: loginForm.account, password: loginForm.password });
+  doLogin({
+    account: loginForm.account,
+    password: loginForm.password,
+    remember: loginForm.remember,
+  });
 };
 
 // 注册提交
@@ -83,7 +95,7 @@ const onOAuth = (provider: "qq" | "wechat" | "email") => {
       </div>
 
       <div class="form-brand">
-        <Radar size="1.5em" color="var(--app-color-blue)" />
+        <Logo size="1.5em" />
         <span class="form-brand-name">竞品雷达</span>
       </div>
 
@@ -128,7 +140,11 @@ const onOAuth = (provider: "qq" | "wechat" | "email") => {
           size="large"
         />
         <div class="form-row">
-          <el-checkbox v-model="loginForm.remember">记住我</el-checkbox>
+          <el-checkbox
+            v-model="loginForm.remember"
+            title="勾选后关闭浏览器再打开仍是登录状态；不勾选则关闭浏览器后需要重新登录"
+            >记住我</el-checkbox
+          >
           <el-button class="form-link forgot-btn" link>忘记密码？</el-button>
         </div>
         <el-button
@@ -373,6 +389,19 @@ const onOAuth = (provider: "qq" | "wechat" | "email") => {
 
 .form-body :deep(.el-input__inner) {
   color: var(--app-color-black);
+}
+
+/* 浏览器自动填充会强制刷上浅色底 + 固定文字色，导致透明输入框出现白块。
+   用超长 transition 延迟阻止 Chrome 覆盖 background-color，并统一文字/光标颜色。 */
+.form-body :deep(.el-input__inner:-webkit-autofill),
+.form-body :deep(.el-input__inner:-webkit-autofill:hover),
+.form-body :deep(.el-input__inner:-webkit-autofill:focus),
+.form-body :deep(.el-input__inner:-webkit-autofill:active),
+.form-body :deep(.el-input__inner:autofill) {
+  background-color: transparent;
+  -webkit-text-fill-color: var(--app-color-black);
+  caret-color: var(--app-color-black);
+  transition: background-color 9999999s ease-in-out 0s;
 }
 
 .form-row {

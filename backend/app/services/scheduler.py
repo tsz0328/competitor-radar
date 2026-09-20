@@ -26,7 +26,8 @@ from app.core.cache import get_cache
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.timeutil import format_time, to_utc
-from app.models.competitor import Competitor
+from app.models.competitor import Competitor, CompetitorStatus
+from app.models.crawl_log import TRIGGER_SCHEDULER
 from app.models.source import MonitorSource
 from app.models.user import User
 from app.services import analyzer, notifier
@@ -98,6 +99,7 @@ async def _crawl_due_sources_locked() -> int:
                 select(MonitorSource, Competitor)
                 .join(Competitor, Competitor.id == MonitorSource.competitor_id)
                 .where(MonitorSource.enabled.is_(True))
+                .where(Competitor.status == CompetitorStatus.ACTIVE)
                 # 最久没抓的排前面（SQLite 里 NULL 在 ASC 时天然最前，正好让新源优先）
                 .order_by(MonitorSource.last_crawled_at.asc())
             )
@@ -115,7 +117,9 @@ async def _crawl_due_sources_locked() -> int:
         logger.info("调度器：%d 个监控源到期，开始抓取", len(due))
         for index, (source, competitor) in enumerate(due):
             try:
-                outcomes = await analyzer.run_competitor_crawl(db, competitor, [source])
+                outcomes = await analyzer.run_competitor_crawl(
+                    db, competitor, [source], trigger=TRIGGER_SCHEDULER
+                )
                 await db.commit()  # 逐个提交：中途异常不至于丢掉整批进度
             except Exception:  # noqa: BLE001 - 单源异常不能影响同批其他源
                 await db.rollback()
@@ -183,13 +187,21 @@ async def _generate_weekly_reports_locked() -> int:
     return created
 
 
-async def count_due_sources(db: AsyncSession) -> int:
-    """当前到期、等待抓取的监控源数量（给状态接口用）。"""
+async def count_due_sources(db: AsyncSession, user_id: int) -> int:
+    """当前账号名下到期、等待抓取的监控源数量（给状态接口用）。
+
+    调度器本身是全局的（一批扫全库），但状态接口只统计调用者自己的源，
+    避免把别人还有多少待抓暴露出来。
+    """
     now = datetime.now(timezone.utc)
     rows = (
         await db.execute(
-            select(MonitorSource.last_crawled_at, MonitorSource.interval_minutes).where(
-                MonitorSource.enabled.is_(True)
+            select(MonitorSource.last_crawled_at, MonitorSource.interval_minutes)
+            .join(Competitor, Competitor.id == MonitorSource.competitor_id)
+            .where(
+                MonitorSource.enabled.is_(True),
+                Competitor.user_id == user_id,
+                Competitor.status == CompetitorStatus.ACTIVE,
             )
         )
     ).all()
@@ -220,6 +232,7 @@ def start_scheduler() -> None:
         trigger=CronTrigger(
             day_of_week=settings.report_cron_day_of_week,
             hour=settings.report_cron_hour,
+            timezone=settings.app_timezone,
         ),
         id=JOB_REPORT,
         name="每周竞品周报自动生成",

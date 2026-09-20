@@ -1,20 +1,8 @@
 <script setup lang="ts">
-import { Radar } from "@/components/Icons";
+import Logo from "@/components/Logo.vue";
+import DemoPlayer from "@/components/DemoPlayer/DemoPlayer.vue";
 import { ref, onMounted, onUnmounted } from "vue";
-import {
-  Star,
-  CaretRight,
-  Bell,
-  User,
-  House,
-  Collection,
-  Warning,
-  Document,
-  TrendCharts,
-  Setting,
-  Calendar,
-  ArrowRight,
-} from "@element-plus/icons-vue";
+import { Star } from "@element-plus/icons-vue";
 
 const activeId = ref("home");
 const navItems = ["home", "preview", "features", "workflow"];
@@ -37,23 +25,25 @@ onMounted(() => {
   );
   sections.forEach((s) => observer.observe(s));
 });
-onUnmounted(() => observer?.disconnect());
+onUnmounted(() => {
+  observer?.disconnect();
+});
 </script>
 
 <template>
   <!-- 导航栏 -->
   <header class="landing-header">
     <div class="landing-header-container">
-      <!-- logo -->
-      <div class="landing-header-logo">
-        <Radar size="1.5em" color="var(--app-color-blue)" />
+      <!-- logo：点它回首页（与导航「首页」同一个锚点） -->
+      <a class="landing-header-logo" href="#home">
+        <Logo size="1.5em" />
         <span class="landing-header-logo-text">竞品雷达</span>
-      </div>
+      </a>
 
       <!-- 导航链接 -->
       <nav class="landing-header-nav">
         <a href="#home" :class="{ active: activeId === 'home' }">首页</a>
-        <a href="#preview" :class="{ active: activeId === 'preview' }">产品预览</a>
+        <a href="#preview" :class="{ active: activeId === 'preview' }">产品演示</a>
         <a href="#features" :class="{ active: activeId === 'features' }">核心功能</a>
         <a href="#workflow" :class="{ active: activeId === 'workflow' }">工作流程</a>
       </nav>
@@ -92,14 +82,6 @@ onUnmounted(() => observer?.disconnect());
         <!-- 按钮 -->
         <div class="hero-actions">
           <el-button class="hero-actions-left" type="primary" @click="$router.push({ name: 'Login' })">开始使用</el-button>
-          <el-button class="hero-actions-right">
-            <div class="hero-actions-right-row">
-              <el-icon class="hero-actions-right-icon">
-                <CaretRight />
-              </el-icon>
-            </div>
-            查看产品演示
-          </el-button>
         </div>
         <!-- 产品特性数据 -->
         <div class="hero-feature-row">
@@ -119,267 +101,19 @@ onUnmounted(() => observer?.disconnect());
       </div>
     </section>
 
-    <!-- 产品预览 -->
+    <!-- 产品演示 -->
     <section class="preview" id="preview">
-      <!-- 工作台 -->
-      <div class="preview-dashboard">
-        <!-- 头部 -->
-        <header class="preview-header">
-          <div class="preview-header-logo">
-            <Radar size="1.5em" color="var(--app-color-blue)" /><span class="preview-header-logo-text">竞品雷达</span>
+      <!-- 标题行 -->
+      <div class="preview-head">
+        <div class="preview-head-text">
+          <div class="preview-head-title">产品演示</div>
+          <div class="preview-head-subtitle">
+            四幕动画走一遍主流程：添加竞品 → 查看情报 → 生成周报 → 读趋势
           </div>
-          <div class="preview-header-right">
-            <el-icon>
-              <Bell />
-            </el-icon>
-            <el-icon class="preview-header-right-avatar">
-              <User />
-            </el-icon>
-          </div>
-        </header>
-        <!-- 主体 -->
-        <main class="preview-main">
-          <!-- 侧边栏 -->
-          <aside class="preview-main-sidebar">
-            <div class="preview-main-sidebar-item">
-              <el-icon>
-                <House />
-              </el-icon>
-              <span>工作台</span>
-            </div>
-            <div class="preview-main-sidebar-item">
-              <el-icon>
-                <Collection />
-              </el-icon>
-              <span>竞品管理</span>
-            </div>
-            <div class="preview-main-sidebar-item">
-              <el-icon>
-                <Warning />
-              </el-icon>
-              <span>情报事件</span>
-            </div>
-            <div class="preview-main-sidebar-item">
-              <el-icon>
-                <Document />
-              </el-icon>
-              <span>AI 报告</span>
-            </div>
-            <div class="preview-main-sidebar-item">
-              <el-icon>
-                <TrendCharts />
-              </el-icon>
-              <span>趋势分析</span>
-            </div>
-            <div class="preview-main-sidebar-item">
-              <el-icon>
-                <Setting />
-              </el-icon>
-              <span>设置</span>
-            </div>
-          </aside>
-          <!-- 内容 -->
-          <section class="preview-main-content">
-            <header class="preview-main-content-header">
-              <!-- 欢迎 -->
-              <div>
-                <div class="preview-main-content-header-welcome">
-                  早上好，用户
-                </div>
-                <div class="preview-main-content-header-subtitle">
-                  这是您今天的竞品情报概览
-                </div>
-              </div>
-              <!-- 日期 -->
-              <div class="preview-main-content-header-date">
-                <el-icon>
-                  <Calendar />
-                </el-icon>
-                <span>2026年12月25日</span>
-                <el-icon>
-                  <ArrowRight />
-                </el-icon>
-              </div>
-            </header>
-
-            <div class="preview-main-content-stats">
-              <div class="preview-main-content-stats-card">
-                <div class="preview-main-content-stats-card-label">
-                  监控竞品
-                </div>
-                <div class="preview-main-content-stats-card-value">12</div>
-                <div class="preview-main-content-stats-card-trend">
-                  <span>+2</span>
-                  本周新增
-                </div>
-              </div>
-              <div class="preview-main-content-stats-card">
-                <div class="preview-main-content-stats-card-label">
-                  新增事件
-                </div>
-                <div class="preview-main-content-stats-card-value">28</div>
-                <div class="preview-main-content-stats-card-trend">
-                  <span>+12%</span>
-                  较上周
-                </div>
-              </div>
-              <div class="preview-main-content-stats-card">
-                <div class="preview-main-content-stats-card-label">AI 报告</div>
-                <div class="preview-main-content-stats-card-value">6</div>
-                <div class="preview-main-content-stats-card-trend">
-                  <span>+2</span>
-                  本周新增
-                </div>
-              </div>
-              <div class="preview-main-content-stats-card">
-                <div class="preview-main-content-stats-card-label">
-                  风险提醒
-                </div>
-                <div class="preview-main-content-stats-card-value">3</div>
-                <div class="preview-main-content-stats-card-trend">
-                  需要关注
-                </div>
-              </div>
-            </div>
-
-            <div class="preview-body">
-              <div class="preview-body-chart-card">
-                <div class="preview-body-chart-card-title">竞品动态趋势</div>
-                <!-- 图例 -->
-                <div class="chart-legend">
-                  <div class="legend-item">
-                    <span class="legend-line color-blue"></span>
-                    <span>功能更新</span>
-                  </div>
-                  <div class="legend-item">
-                    <span class="legend-line color-purple"></span>
-                    <span>价格变动</span>
-                  </div>
-                  <div class="legend-item">
-                    <span class="legend-line color-green"></span>
-                    <span>舆论热度</span>
-                  </div>
-                </div>
-                <!-- 图表 -->
-                <div class="preview-body-chart">
-                  <svg class="preview-chart-svg" viewBox="0 0 425 180" preserveAspectRatio="none"
-                    xmlns="http://www.w3.org/2000/svg">
-                    <defs>
-                      <!-- 蓝色渐变：功能更新 -->
-                      <linearGradient id="area-blue" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stop-color="var(--app-color-blue)" stop-opacity="0.25" />
-                        <stop offset="100%" stop-color="var(--app-color-blue)" stop-opacity="0.02" />
-                      </linearGradient>
-                      <!-- 紫色渐变：价格变动 -->
-                      <linearGradient id="area-purple" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stop-color="var(--app-color-purple)" stop-opacity="0.2" />
-                        <stop offset="100%" stop-color="var(--app-color-purple)" stop-opacity="0.02" />
-                      </linearGradient>
-                      <!-- 绿色渐变：舆论热度 -->
-                      <linearGradient id="area-green" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stop-color="var(--app-color-green)" stop-opacity="0.2" />
-                        <stop offset="100%" stop-color="var(--app-color-green)" stop-opacity="0.02" />
-                      </linearGradient>
-                    </defs>
-
-                    <!-- 水平网格虚线 -->
-                    <g stroke="#e5e7eb" stroke-width="1" stroke-dasharray="3 3">
-                      <line x1="30" y1="10" x2="410" y2="10" />
-                      <line x1="30" y1="46.25" x2="410" y2="46.25" />
-                      <line x1="30" y1="82.5" x2="410" y2="82.5" />
-                      <line x1="30" y1="118.75" x2="410" y2="118.75" />
-                      <line x1="30" y1="155" x2="410" y2="155" />
-                    </g>
-
-                    <!-- 纵轴刻度 0-20 -->
-                    <g fill="#909399" font-size="12" text-anchor="end" font-family="system-ui">
-                      <text x="25" y="14">20</text>
-                      <text x="25" y="50.25">15</text>
-                      <text x="25" y="86.5">10</text>
-                      <text x="25" y="122.75">5</text>
-                      <text x="25" y="159">0</text>
-                    </g>
-
-                    <!-- 横轴日期刻度 -->
-                    <g fill="#909399" font-size="12" text-anchor="middle" font-family="system-ui">
-                      <text x="30" y="172">6/19</text>
-                      <text x="93.33" y="172">6/20</text>
-                      <text x="156.67" y="172">6/21</text>
-                      <text x="220" y="172">6/22</text>
-                      <text x="283.33" y="172">6/23</text>
-                      <text x="346.67" y="172">6/24</text>
-                      <text x="410" y="172">6/25</text>
-                    </g>
-
-                    <!-- 舆论热度（最底层绿色面积） -->
-                    <path
-                      d="M30,155 C62,137 94,126 125,118.8 S188,126 220,93.4 S283,105 315,118.8 S378,100 410,81 L410,155 L30,155 Z"
-                      fill="url(#area-green)" />
-
-                    <!-- 价格变动（中间层紫色面积） -->
-                    <path
-                      d="M30,112 C62,98 94,88 125,82 S188,92 220,66 S283,76 315,85 S378,55 410,28 L410,155 L30,155 Z"
-                      fill="url(#area-purple)" />
-
-                    <!-- 功能更新（最上层蓝色面积） -->
-                    <path
-                      d="M30,97 C62,81 94,69 125,64.4 S188,75 220,46.3 S283,58 315,68 S378,42 410,10 L410,155 L30,155 Z"
-                      fill="url(#area-blue)" />
-
-                    <!-- 功能更新：蓝色主折线 -->
-                    <path d="M30,97 C62,81 94,69 125,64.4 S188,75 220,46.3 S283,58 315,68 S378,42 410,10" fill="none"
-                      stroke="var(--app-color-blue)" stroke-width="2.5" stroke-linecap="round"
-                      stroke-linejoin="round" />
-
-                    <!-- 价格变动：紫色折线 -->
-                    <path d="M30,112 C62,98 94,88 125,82 S188,92 220,66 S283,76 315,85 S378,55 410,28" fill="none"
-                      stroke="var(--app-color-purple)" stroke-width="2" stroke-linecap="round"
-                      stroke-linejoin="round" />
-
-                    <!-- 舆论热度：绿色折线 -->
-                    <path d="M30,155 C62,137 94,126 125,118.8 S188,126 220,93.4 S283,105 315,118.8 S378,100 410,81"
-                      fill="none" stroke="var(--app-color-green)" stroke-width="2" stroke-linecap="round"
-                      stroke-linejoin="round" />
-                  </svg>
-                </div>
-              </div>
-
-              <div class="preview-new-card">
-                <div class="preview-new-card-title">最新 AI 洞察</div>
-                <div class="preview-new-card-list">
-                  <div class="preview-new-card-list-item">
-                    <div class="preview-new-card-list-item-title">
-                      Claude 发布新模型能力
-                    </div>
-                    <div class="preview-new-card-list-item-desc">
-                      在长文本理解方面取得显著提升
-                    </div>
-                    <div class="preview-new-card-list-item-date">2小时前</div>
-                  </div>
-                  <div class="preview-new-card-list-item">
-                    <div class="preview-new-card-list-item-title">
-                      OpenAI 调整 API 定价策略
-                    </div>
-                    <div class="preview-new-card-list-item-desc">
-                      部分模型价格下调 20%
-                    </div>
-                    <div class="preview-new-card-list-item-date">5小时前</div>
-                  </div>
-                  <div class="preview-new-card-list-item">
-                    <div class="preview-new-card-list-item-title">
-                      Midjourney 上线视频生成功能
-                    </div>
-                    <div class="preview-new-card-list-item-desc">
-                      正式进军 AI 视频领域
-                    </div>
-                    <div class="preview-new-card-list-item-date">1天前</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-        </main>
+        </div>
       </div>
+
+      <DemoPlayer />
     </section>
 
     <!-- 功能特性 -->
@@ -561,7 +295,7 @@ onUnmounted(() => observer?.disconnect());
           <span class="landing-footer-nav-item-title">产品</span>
           <a href="#features">功能介绍</a>
           <a href="#workflow">工作流程</a>
-          <a href="#preview">产品预览</a>
+          <a href="#preview">产品演示</a>
         </div>
 
         <!-- 关于 -->
@@ -619,7 +353,7 @@ onUnmounted(() => observer?.disconnect());
   padding: 1vh 5vw;
 }
 
-/* logo */
+/* logo（本身是 <a href="#home">：点它回首页，故清掉链接默认样式） */
 .landing-header-logo {
   display: flex;
   align-items: center;
@@ -628,6 +362,34 @@ onUnmounted(() => observer?.disconnect());
   font-weight: bold;
   cursor: pointer;
   font-size: 2vmax;
+  text-decoration: none;
+  color: inherit;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+/* 悬浮 / 点击反馈：文字变色放大，与导航链接的配色一致 */
+.landing-header-logo:hover {
+  color: var(--app-color-blue-light-1);
+  transform: scale(1.05);
+}
+.landing-header-logo:active {
+  color: var(--app-color-blue-dark-1);
+  transform: scale(0.98);
+}
+
+/* logo 是 PNG，不吃 color：用滤镜让图标跟文字同步。
+   基线必须与悬浮态写同一组滤镜函数，否则插值不连续会先闪一帧暗色 */
+.landing-header-logo :deep(.logo-img) {
+  filter: brightness(1) saturate(1);
+  will-change: filter, transform;
+  transition: filter 0.2s ease, transform 0.2s ease;
+}
+.landing-header-logo:hover :deep(.logo-img) {
+  filter: brightness(1.12) saturate(1.25);
+}
+.landing-header-logo:active :deep(.logo-img) {
+  filter: brightness(0.92) saturate(1.05);
+  transform: scale(0.96);
 }
 
 /* 导航链接 */
@@ -751,7 +513,7 @@ onUnmounted(() => observer?.disconnect());
   font-size: 1.5vmax;
 }
 
-/* 开始使用 / 查看产品演示 按钮组 */
+/* 开始使用按钮 */
 .hero-actions {
   display: flex;
   align-items: center;
@@ -780,44 +542,6 @@ onUnmounted(() => observer?.disconnect());
   background: var(--app-color-blue);
   box-shadow: 0 2px 8px color-mix(in oklch, var(--app-color-purple) 30%, transparent);
   transform: translateY(1px);
-}
-
-/* 查看产品演示按钮 */
-.hero-actions-right {
-  position: relative;
-  padding: var(--btn-padding-y) var(--btn-padding-x) var(--btn-padding-y) calc(2 * var(--btn-padding-x));
-  background-color: transparent;
-  transition: all 0.2s ease;
-}
-
-.hero-actions-right:hover {
-  background-color: color-mix(in oklch,
-      var(--app-color-blue-light-5) 10%,
-      transparent);
-  border-color: var(--app-color-white);
-}
-
-.hero-actions-right:active {
-  background-color: color-mix(in oklch,
-      var(--app-color-purple) 12%,
-      transparent);
-}
-
-/* 查看产品演示按钮行 */
-.hero-actions-right-row {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: calc(2 * var(--btn-padding-x));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* 查看产品演示按钮图标 */
-.hero-actions-right-icon {
-  font-size: 2vmax;
 }
 
 /* 功能特性 */
@@ -861,247 +585,30 @@ onUnmounted(() => observer?.disconnect());
 
 .preview {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 5vh 0;
-}
-
-.preview-dashboard {
-  border-radius: 2vmax;
-  overflow: hidden;
-  box-shadow: 0 12px 40px color-mix(in oklch, var(--app-color-blue) 80%, transparent);
-  width: 75vw;
-}
-
-.preview-header {
-  padding: 1vh 2vw;
-  display: flex;
-  justify-content: space-between;
-  background-color: color-mix(in oklab,
-      var(--app-color-white) 60%,
-      transparent);
-}
-
-.preview-header-logo {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1vw;
-  font-weight: bold;
-  font-size: 1.5vmax;
-}
-
-.preview-header-right {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2vw;
-  font-size: 2vmax;
-}
-
-.preview-header-right-avatar {
-  background-color: var(--app-color-blue-light-3);
-  width: 2.2vmax;
-  height: 2.2vmax;
-  border-radius: 100%;
-}
-
-.preview-main {
-  background-color: color-mix(in oklab,
-      var(--app-color-white) 30%,
-      transparent);
-  display: flex;
-}
-
-.preview-main-sidebar {
-  font-size: 1.5vmax;
-  padding: 2vh 1vw;
-  border-right: 1px solid color-mix(in oklch, var(--app-color-black) 10%, transparent);
-}
-
-.preview-main-sidebar-item {
-  padding: 1vh 2vw 1vh 1vw;
-  display: flex;
-  align-items: center;
-  gap: 1vw;
-  border-radius: 1vmax;
-}
-
-.preview-main-sidebar-item:first-child {
-  background-color: color-mix(in oklab, var(--app-color-blue) 30%, transparent);
-}
-
-.preview-main-content {
-  display: flex;
   flex-direction: column;
-  gap: 2vh;
-  justify-content: center;
-  padding: 2vh 2vw;
-  flex: 1;
+  align-items: center;
+  gap: 3vh;
+  padding: 5vh 12.5vw;
 }
 
-.preview-main-content-header {
+/* 标题行：与演示播放器同宽 */
+.preview-head {
+  width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-}
-
-.preview-main-content-header-welcome {
-  font-size: 2vmax;
-  font-weight: bold;
-}
-
-.preview-main-content-header-subtitle {
-  font-size: 1vmax;
-}
-
-.preview-main-content-header-date {
-  border-radius: 1vmax;
-  padding: 1vh 1vw;
-  display: flex;
-  align-items: center;
-  gap: 0.5vw;
-  font-size: 1vmax;
-}
-
-.preview-main-content-stats {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.preview-main-content-stats-card {
-  background-color: color-mix(in oklab,
-      var(--app-color-white) 60%,
-      transparent);
-  border-radius: 1vmax;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
-  padding: 1vh 3vw 1vh 1vw;
-}
-
-.preview-main-content-stats-card-label {
-  font-size: 1.2vmax;
-  font-weight: bold;
-}
-
-.preview-main-content-stats-card-value {
-  font-size: 1.5vmax;
-  font-weight: bold;
-}
-
-.preview-main-content-stats-card-trend {
-  font-size: 1vmax;
-}
-
-.preview-body {
-  display: flex;
   gap: 2vw;
 }
 
-.preview-body-chart-card {
-  background-color: color-mix(in oklab,
-      var(--app-color-white) 60%,
-      transparent);
-  padding: 1vh 1vw;
-  border-radius: 1vmax;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
-  display: flex;
-  flex-direction: column;
-  gap: 1vh;
-  flex: 2;
-  min-width: 0;
+.preview-head-title {
+  font-size: 2.2vmax;
+  font-weight: bold;
 }
 
-.preview-body-chart-card-title {
+.preview-head-subtitle {
   font-size: 1.1vmax;
-  font-weight: bold;
-}
-
-.chart-legend {
-  display: flex;
-  justify-content: flex-end;
-  gap: 1vw;
-}
-
-.legend-item {
-  display: flex;
-  align-items: center;
-  font-size: 1vmax;
-  gap: 0.5vw;
-}
-
-.legend-line {
-  width: 2vw;
-  height: 0.8vh;
-  border-radius: 0.8vh;
-}
-
-.color-blue {
-  background-color: var(--app-color-blue);
-}
-
-.color-purple {
-  background-color: var(--app-color-purple);
-}
-
-.color-green {
-  background-color: var(--app-color-green);
-}
-
-.preview-body-chart {
-  width: 100%;
-}
-
-.preview-chart-svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.preview-new-card {
-  background-color: color-mix(in oklab,
-      var(--app-color-white) 60%,
-      transparent);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
-  border-radius: 1vmax;
-  padding: 1vh 1vw;
-  flex: 1;
-  min-width: 0;
-}
-
-.preview-new-card-title {
-  font-size: 1.3vmax;
-  font-weight: bold;
-  padding: 1vh 1vw 1vh 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.preview-new-card-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1vh;
-}
-
-.preview-new-card-list-item-title {
-  font-size: 1.2vmax;
-  font-weight: bold;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.preview-new-card-list-item-desc {
-  font-size: 1vmax;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.preview-new-card-list-item-date {
-  font-size: 1vmax;
-  color: var(--app-color-gray);
+  margin-top: 0.8vh;
+  color: var(--app-text-color-regular);
 }
 
 .features {
@@ -1327,4 +834,5 @@ onUnmounted(() => observer?.disconnect());
   font-size: 1.5vmax;
   color: var(--el-text-color-placeholder);
 }
+
 </style>
