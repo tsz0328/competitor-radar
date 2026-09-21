@@ -2,9 +2,11 @@ import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api import (
     admin,
@@ -17,6 +19,7 @@ from app.api import (
     reports,
     scheduler,
     setting,
+    share,
     snapshots,
     sources,
     trends,
@@ -26,6 +29,12 @@ from app.core.config import get_settings
 from app.core.database import init_db
 from app.core.event_bus import bus
 from app.core.exceptions import register_exception_handlers
+from app.core.validators import (
+    is_valid_account,
+    is_valid_email,
+    normalize_account,
+    normalize_email,
+)
 from app.services import browser
 from app.services.scheduler import shutdown_scheduler, start_scheduler
 
@@ -35,15 +44,30 @@ logger = logging.getLogger(__name__)
 
 
 async def seed_admin() -> None:
-    """按配置种入初始管理员；默认关闭，且绝不自动提权或改已有账号密码。"""
+    """按配置种入初始管理员；默认关闭，且绝不自动提权或改已有账号密码。
+
+    账号名与邮箱已解绑：BOOTSTRAP_ADMIN_USERNAME 是**自定义账号名**
+    （3–30 位、字母数字下划线中划线、不含 `@`），BOOTSTRAP_ADMIN_EMAIL 是
+    **可选**的绑定邮箱。不配邮箱也能种入，只是该管理员不能用邮箱验证码登录、
+    也收不到邮件通知（可以登录后在用户中心自己绑）。
+    """
     if not settings.bootstrap_admin_enabled:
         logger.info("初始管理员种入已关闭（BOOTSTRAP_ADMIN_ENABLED=false）")
         return
-    username = settings.bootstrap_admin_username.strip()
+
     password = settings.bootstrap_admin_password
-    if not username or not password:
+    username = normalize_account(settings.bootstrap_admin_username)
+    email = normalize_email(settings.bootstrap_admin_email)
+
+    if not password or not is_valid_account(username):
         logger.error(
-            "BOOTSTRAP_ADMIN_ENABLED=true，但用户名或密码为空，已跳过初始管理员种入"
+            "BOOTSTRAP_ADMIN_ENABLED=true，但密码为空或账号名不合规"
+            "（需 3–30 位，仅字母/数字/下划线/中划线，不含 @），已跳过初始管理员种入"
+        )
+        return
+    if email and not is_valid_email(email):
+        logger.error(
+            "BOOTSTRAP_ADMIN_EMAIL 不是合法邮箱（留空表示不绑定），已跳过初始管理员种入"
         )
         return
 
@@ -61,6 +85,8 @@ async def seed_admin() -> None:
             db.add(
                 User(
                     username=username,
+                    # 空值统一存 NULL，不存空串（空串会占用 uq_users_email 的唯一名额）
+                    email=email or None,
                     password_hash=hash_password(password),
                     password_length=len(password),
                     is_admin=True,
@@ -96,7 +122,7 @@ async def lifespan(app: FastAPI):
     _warn_if_selector_loop()
     # 启动时先建好数据库
     await init_db()
-    # 种入默认管理员账号（admin / 123456），不存在才创建
+    # 种入初始管理员账号（默认关闭；开启后用 BOOTSTRAP_ADMIN_EMAIL + 密码种入）
     await seed_admin()
     # 再拉起进程内调度器：按各监控源的频率自动抓取、每周自动生成周报。
     # AI 配置按用户实时解析（见 services/settings.get_user_llm_config），
@@ -128,6 +154,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 竞品图标库静态托管：<img> 无法携带 Authorization，必须走公开静态路由；
+# 目录里只会有上传端白名单校验过的图片（svg 已拒收）。StaticFiles 要求
+# 目录已存在，先建好再挂载。
+icons_path = Path(settings.storage_dir) / "icons"
+icons_path.mkdir(parents=True, exist_ok=True)
+app.mount("/api/icons", StaticFiles(directory=icons_path), name="icons")
+
 app.include_router(users.router)  # 把 users 路由组挂进来
 app.include_router(llm.router)
 app.include_router(setting.router)
@@ -141,6 +174,7 @@ app.include_router(snapshots.router)
 app.include_router(crawl_logs.router)
 app.include_router(trends.router)
 app.include_router(reports.router)
+app.include_router(share.router)
 app.include_router(scheduler.router)
 
 

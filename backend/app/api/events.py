@@ -53,7 +53,10 @@ def _base_conditions(
     days: int | None = None,
 ) -> list:
     """除「分类/类型/优先级」之外的公共筛选条件（这三个是自身维度，分面计数时要排除）。"""
-    conditions = [Competitor.user_id == current_user.id]
+    conditions = [
+        Competitor.user_id == current_user.id,
+        Competitor.deleted_at.is_(None),  # 回收站里的竞品，其事件不出现在情报中心
+    ]
     if competitor_id is not None:
         conditions.append(IntelligenceEvent.competitor_id == competitor_id)
     if days:
@@ -90,7 +93,7 @@ def _type_conditions(category: str | None, event_type: EventType | None) -> list
 
 
 def _base_select():
-    """事件 + 竞品名 + 官网 + 来源页名 + 来源页地址（一次查询取齐展示所需字段）。"""
+    """事件 + 竞品名 + 官网 + 来源页名 + 来源页地址 + 竞品图标（一次查询取齐展示所需字段）。"""
     return (
         select(
             IntelligenceEvent,
@@ -98,6 +101,8 @@ def _base_select():
             Competitor.official_url,
             func.coalesce(MonitorSource.name, "未知页面"),
             func.coalesce(MonitorSource.url, ""),
+            # 抓取时落库的真实图标；为空时响应层回退成官网 favicon
+            Competitor.logo_url,
         )
         .join(Competitor, Competitor.id == IntelligenceEvent.competitor_id)
         .outerjoin(MonitorSource, MonitorSource.id == IntelligenceEvent.source_id)
@@ -105,12 +110,13 @@ def _base_select():
 
 
 def _to_record(row) -> EventRecordOut:
-    event, competitor_name, official_url, source_name, _source_url = row
+    event, competitor_name, official_url, source_name, _source_url, logo_url = row
     return EventRecordOut(
         id=event.id,
         competitor_id=event.competitor_id,
         competitor_name=competitor_name or "",
         competitor_domain=official_url or "",
+        competitor_logo_url=logo_url or None,
         source_name=source_name or "未知页面",
         event_type=event.event_type,
         title=event.title,
@@ -247,6 +253,7 @@ async def related_events(
         _base_select()
         .where(
             Competitor.user_id == current_user.id,
+            Competitor.deleted_at.is_(None),
             IntelligenceEvent.competitor_id == competitor_id,
         )
     )
@@ -336,19 +343,21 @@ async def get_event(
             _base_select().where(
                 IntelligenceEvent.id == event_id,
                 Competitor.user_id == current_user.id,
+                Competitor.deleted_at.is_(None),
             )
         )
     ).first()
     if row is None:
         raise BusinessError(ERR_EVENT_NOT_FOUND, "事件不存在", 404)
 
-    event, _name, official_url, _source_name, source_url = row
+    event, _name, official_url, _source_name, source_url, _logo_url = row
     base = _to_record(row)
     return EventDetailOut(
         id=base.id,
         competitor_id=base.competitor_id,
         competitor_name=base.competitor_name,
         competitor_domain=base.competitor_domain,
+        competitor_logo_url=base.competitor_logo_url,
         source_name=base.source_name,
         event_type=base.event_type,
         title=base.title,

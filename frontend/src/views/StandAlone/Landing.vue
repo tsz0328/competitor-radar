@@ -1,12 +1,37 @@
 <script setup lang="ts">
 import Logo from "@/components/Logo.vue";
 import DemoPlayer from "@/components/DemoPlayer/DemoPlayer.vue";
-import { ref, onMounted, onUnmounted } from "vue";
+import { computed, ref, onMounted, onUnmounted } from "vue";
 import { Star } from "@element-plus/icons-vue";
 
 const activeId = ref("home");
 const navItems = ["home", "preview", "features", "workflow"];
 let observer: IntersectionObserver;
+
+// 页脚在页面最底部，进不了下面那条高亮判定带（-40% / -55%）：
+// 单独看"是否已滚到底"来决定「关于」的高亮
+const atBottom = ref(false);
+function updateAtBottom() {
+  const el = document.documentElement;
+  atBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight <= 2;
+}
+
+// 刚点过的导航项：先锁定它。否则会出现"点工作流程却高亮关于"——
+// 工作流程已经是最后一个区块，页脚又不矮，锚点滚到位时页面已经到底了。
+const clickedId = ref("");
+function onNavClick(id: string) {
+  clickedId.value = id;
+}
+/** 用户自己滚动（滚轮 / 触摸 / 键盘）时解除锁定，交还给区块观察 */
+function releaseClickLock() {
+  clickedId.value = "";
+}
+
+/** 当前高亮的导航项：优先"刚点的那项"，其次滚到底＝关于，最后是区块观察结果 */
+const activeNav = computed(() => {
+  if (clickedId.value) return clickedId.value;
+  return atBottom.value ? "footer" : activeId.value;
+});
 
 // 监听滚动，根据滚动位置设置 activeId
 onMounted(() => {
@@ -24,9 +49,19 @@ onMounted(() => {
     { rootMargin: "-40% 0px -55% 0px", threshold: 0 },
   );
   sections.forEach((s) => observer.observe(s));
+  updateAtBottom();
+  window.addEventListener("scroll", updateAtBottom, { passive: true });
+  // 注意只监听用户主动滚动：锚点跳转也会触发 scroll，会把刚点的锁定冲掉
+  window.addEventListener("wheel", releaseClickLock, { passive: true });
+  window.addEventListener("touchstart", releaseClickLock, { passive: true });
+  window.addEventListener("keydown", releaseClickLock);
 });
 onUnmounted(() => {
   observer?.disconnect();
+  window.removeEventListener("scroll", updateAtBottom);
+  window.removeEventListener("wheel", releaseClickLock);
+  window.removeEventListener("touchstart", releaseClickLock);
+  window.removeEventListener("keydown", releaseClickLock);
 });
 </script>
 
@@ -42,10 +77,37 @@ onUnmounted(() => {
 
       <!-- 导航链接 -->
       <nav class="landing-header-nav">
-        <a href="#home" :class="{ active: activeId === 'home' }">首页</a>
-        <a href="#preview" :class="{ active: activeId === 'preview' }">产品演示</a>
-        <a href="#features" :class="{ active: activeId === 'features' }">核心功能</a>
-        <a href="#workflow" :class="{ active: activeId === 'workflow' }">工作流程</a>
+        <a
+          href="#home"
+          :class="{ active: activeNav === 'home' }"
+          @click="onNavClick('home')"
+          >首页</a
+        >
+        <a
+          href="#preview"
+          :class="{ active: activeNav === 'preview' }"
+          @click="onNavClick('preview')"
+          >产品演示</a
+        >
+        <a
+          href="#features"
+          :class="{ active: activeNav === 'features' }"
+          @click="onNavClick('features')"
+          >核心功能</a
+        >
+        <a
+          href="#workflow"
+          :class="{ active: activeNav === 'workflow' }"
+          @click="onNavClick('workflow')"
+          >工作流程</a
+        >
+        <!-- 关于：滚到页脚（文档 / GitHub / 法务都在那）；滚到底时它才高亮 -->
+        <a
+          href="#footer"
+          :class="{ active: activeNav === 'footer' }"
+          @click="onNavClick('footer')"
+          >关于</a
+        >
       </nav>
 
       <!-- 右边按钮 -->
@@ -278,8 +340,8 @@ onUnmounted(() => {
     </section>
   </main>
 
-  <!-- 底部导航栏 -->
-  <footer class="landing-footer">
+  <!-- 底部导航栏：id 供顶部导航「关于」锚点跳转 -->
+  <footer class="landing-footer" id="footer">
     <!-- 底部导航栏容器 -->
     <div class="landing-footer-container">
       <!-- 品牌信息 -->
@@ -290,27 +352,28 @@ onUnmounted(() => {
 
       <!-- 导航链接 -->
       <nav class="landing-footer-nav">
-        <!-- 产品 -->
+        <!-- 产品：核心功能 / 产品演示是顶部导航已有的同页锚点，放这里纯重复，
+             而且从页面底部点它们几乎不移动，故只保留真正有落点的「使用文档」 -->
         <div class="landing-footer-nav-item">
           <span class="landing-footer-nav-item-title">产品</span>
-          <a href="#features">功能介绍</a>
-          <a href="#workflow">工作流程</a>
-          <a href="#preview">产品演示</a>
+          <router-link :to="{ name: 'Help' }">使用文档</router-link>
         </div>
 
-        <!-- 关于 -->
+        <!-- 关于：只留一个 GitHub 入口，Issues 与仓库是同一个地方，不必列两条 -->
         <div class="landing-footer-nav-item">
           <span class="landing-footer-nav-item-title">关于</span>
-          <a href="#">团队博客</a>
-          <a href="#">联系我们</a>
+          <a
+            href="https://github.com/tsz0328/competitor-radar"
+            target="_blank"
+            rel="noopener noreferrer"
+          >GitHub</a>
         </div>
 
-        <!-- 法律 -->
+        <!-- 法律（站内页面，用 router-link 走前端路由） -->
         <div class="landing-footer-nav-item">
           <span class="landing-footer-nav-item-title">法律</span>
-          <a href="#">隐私政策</a>
-          <a href="#">服务条款</a>
-          <a href="https://github.com/tsz0328/competitor-radar.git" target="_blank">GitHub</a>
+          <router-link :to="{ name: 'Privacy' }">隐私政策</router-link>
+          <router-link :to="{ name: 'Terms' }">服务条款</router-link>
         </div>
       </nav>
 
@@ -524,6 +587,11 @@ onUnmounted(() => {
 
 /* 开始使用按钮 */
 .hero-actions-left {
+  /* hero 的主 CTA 比页面其他按钮大一档：字号 +20%，内边距同步放大 */
+  --btn-padding-y: 1.4vh;
+  --btn-padding-x: 2.4vw;
+  font-size: 1.8vmax;
+  font-weight: bold;
   background: linear-gradient(135deg,
       var(--app-color-blue-light-2),
       var(--app-color-purple));
@@ -771,14 +839,15 @@ onUnmounted(() => {
   background-color: var(--app-color-blue-light-3);
 }
 
-/* 底部导航栏容器 */
+/* 底部导航栏容器：页脚本身就是「关于」的落点，留足高度才像一块内容区，
+   否则点关于滚到底只看到薄薄一条 */
 .landing-footer-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 4vh 5vw 2vh;
-  gap: 1vh;
+  padding: 7vh 5vw 5vh;
+  gap: 3vh;
   color: var(--el-text-color-regular);
 }
 
@@ -810,7 +879,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1vh;
+  gap: 1.4vh;
 }
 
 .landing-footer-nav-item-title {

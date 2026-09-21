@@ -36,6 +36,10 @@ export interface CompetitorItem {
   todayChanges: number;
   /** 该竞品下的监控源（详情/编辑用） */
   sources?: MonitorSourceItem[];
+  /** 软删除标记：非空表示已移入回收站（ISO 时间字符串） */
+  deletedAt?: string | null;
+  /** 新增竞品时若命中回收站里的同竞品并恢复，则为 true */
+  restored?: boolean;
 }
 
 /** v1 支持的数据源类型（与后端 SOURCE_TYPE_REGISTRY 对齐） */

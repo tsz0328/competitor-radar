@@ -74,6 +74,11 @@ def _migrate_dev_columns(conn) -> None:
         ("users", "is_admin", "BOOLEAN NOT NULL DEFAULT 0"),
         # 账号启用状态（管理员可停用）：老 dev.db 补上，默认启用
         ("users", "is_active", "BOOLEAN NOT NULL DEFAULT 1"),
+        # 竞品软删除（回收站）：老 dev.db 补上，空值表示未删除
+        ("competitors", "deleted_at", "DATETIME"),
+        # 免登录分享：token + 过期时间（过期为空 = 永久），老 dev.db 补上
+        ("weekly_reports", "share_token", "VARCHAR(64)"),
+        ("weekly_reports", "share_expires_at", "DATETIME"),
     ]
     for table, column, ctype in additions:
         try:
@@ -81,3 +86,9 @@ def _migrate_dev_columns(conn) -> None:
         except Exception:
             # 列已存在 / 表不存在等：开发期直接忽略，不影响启动
             pass
+    # 允许同一周期存多份报告：老 dev.db 里残留的唯一索引主动摘掉，
+    # 否则「再生成一份新的」会被 UNIQUE 约束挡下（生产走 alembic 迁移）。
+    try:
+        conn.exec_driver_sql("DROP INDEX IF EXISTS uq_report_user_range_start")
+    except Exception:
+        pass

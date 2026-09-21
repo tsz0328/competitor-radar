@@ -100,9 +100,24 @@ export function crawlCompetitor(id: number): Promise<CrawlResult> {
   );
 }
 
-/** 删除竞品监控配置，历史快照和情报事件保留；后端 204 无响应体 */
+/** 删除竞品监控配置：移入回收站（软删除），30 天内可在「回收站」恢复；后端 204 无响应体 */
 export function deleteCompetitor(id: number): Promise<void> {
   return request.delete<unknown, void>(`/api/competitors/${id}`);
+}
+
+/** 回收站列表：当前用户已软删除、尚在保留期内的竞品 */
+export function fetchTrash(): Promise<CompetitorItem[]> {
+  return request.get<unknown, CompetitorItem[]>("/api/competitors/trash");
+}
+
+/** 从回收站恢复竞品：清除删除标记，历史数据重新可用 */
+export function restoreCompetitor(id: number): Promise<CompetitorItem> {
+  return request.post<unknown, CompetitorItem>(`/api/competitors/trash/${id}`);
+}
+
+/** 从回收站彻底删除竞品：连事件与快照一并清除，不可恢复；后端 204 无响应体 */
+export function purgeCompetitor(id: number): Promise<void> {
+  return request.delete<unknown, void>(`/api/competitors/trash/${id}`);
 }
 
 /** 一键重新启用被「连续失败自动停用」的监控源，并清零失败计数 */

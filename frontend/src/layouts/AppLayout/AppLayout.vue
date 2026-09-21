@@ -1,6 +1,12 @@
 <script setup lang="ts">
+import { onMounted, onUnmounted } from 'vue'
 import SideNav from '@/layouts/AppLayout/SideNav.vue'
 import TopBar from '@/layouts/AppLayout/TopBar.vue'
+import { startSessionWatch, stopSessionWatch } from '@/composables/useSession'
+
+// 会话看守只在已登录区域生效：进入 /app 启动，离开 /app（含登出跳转）停止
+onMounted(startSessionWatch)
+onUnmounted(stopSessionWatch)
 </script>
 <template>
   <div class="app-layout">

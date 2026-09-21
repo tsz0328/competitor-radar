@@ -1,0 +1,87 @@
+- generic [ref=e129]:
+  - complementary [ref=e130]:
+    - generic [ref=e131]:
+      - generic [ref=e132] [cursor=pointer]:
+        - img "竞品雷达" [ref=e133]
+        - generic [ref=e134]: 竞品雷达
+      - list [ref=e135]:
+        - listitem [ref=e136] [cursor=pointer]:
+          - generic [ref=e140]: 工作台
+        - listitem [ref=e141] [cursor=pointer]:
+          - generic [ref=e147]: 竞品管理
+        - listitem [ref=e148] [cursor=pointer]:
+          - generic [ref=e152]: 抓取日志
+        - listitem [ref=e153] [cursor=pointer]:
+          - generic [ref=e157]: 情报中心
+        - listitem [ref=e158] [cursor=pointer]:
+          - generic [ref=e162]: 周度报告
+        - listitem [ref=e163] [cursor=pointer]:
+          - generic [ref=e167]: 趋势分析
+        - listitem [ref=e168] [cursor=pointer]:
+          - generic [ref=e172]: 回收站
+        - listitem [ref=e173] [cursor=pointer]:
+          - generic [ref=e177]: 设置
+        - listitem [ref=e178] [cursor=pointer]:
+          - generic [ref=e182]: 用户管理
+      - generic [ref=e184] [cursor=pointer]:
+        - img "头像" [ref=e186]
+        - generic [ref=e187]:
+          - generic "管理员" [ref=e188]
+          - generic "1614910065" [ref=e189]
+          - generic "1614910065@qq.com" [ref=e190]
+  - generic [ref=e194]:
+    - banner [ref=e195]:
+      - generic [ref=e197]:
+        - generic [ref=e198]: 真实模型
+        - generic [ref=e202] [cursor=pointer]
+        - link "使用文档（新标签页打开）" [ref=e208] [cursor=pointer]:
+          - /url: /help
+    - main [ref=e212]:
+      - generic [ref=e213]:
+        - generic [ref=e214]:
+          - generic [ref=e215]:
+            - generic [ref=e216]: 下午好，管理员
+            - generic [ref=e217]: 今天是 2026年09月20日星期日
+          - generic [ref=e218]: 今天发现 0 条新情报，其中 0 条值得重点关注
+        - generic [ref=e219]:
+          - generic [ref=e220]: 添加第一个竞品后，这里会自动汇总今日的重点变化。
+          - button "添加竞品" [ref=e221] [cursor=pointer]
+        - generic [ref=e223]:
+          - generic [ref=e225] [cursor=pointer]:
+            - generic [ref=e226]: 监控竞品
+            - generic [ref=e227]: "0"
+            - generic [ref=e228]: 共 0 个监控页面
+          - generic [ref=e234] [cursor=pointer]:
+            - generic [ref=e235]: 今日情报
+            - generic [ref=e236]: "0"
+            - generic [ref=e237]: 今天累计
+          - generic [ref=e243] [cursor=pointer]:
+            - generic [ref=e244]: 重点变化
+            - generic [ref=e245]: "0"
+            - generic [ref=e246]: 高优先级
+          - generic [ref=e252] [cursor=pointer]:
+            - generic [ref=e253]: 风险提醒
+            - generic [ref=e254]: "0"
+            - generic [ref=e255]: 今日舆论动态
+        - generic [ref=e260]:
+          - generic [ref=e261]:
+            - generic [ref=e262]: 竞品动态
+            - generic [ref=e263]: 点击有变化的竞品，查看它今天的情报
+          - generic [ref=e264]: 还没有竞品，先添加一个吧
+        - generic [ref=e266]:
+          - generic [ref=e267]:
+            - generic [ref=e268]: 近 30 天情报变化趋势
+            - generic [ref=e269]: 点击某一天，查看当天情报
+          - generic [ref=e271] [cursor=pointer]
+        - generic [ref=e276]:
+          - generic [ref=e277]:
+            - generic [ref=e278]: 今日要点
+            - generic [ref=e279]: AI 结论 + 值得关注的原文变化
+          - generic [ref=e280]:
+            - generic [ref=e281]:
+              - generic [ref=e282]:
+                - generic [ref=e283]: AI 结论
+                - generic [ref=e284]: 规则
+              - paragraph [ref=e285]: 过去 24 小时内没有检测到新的竞品变化，各监控页面与上一版一致。
+              - generic [ref=e286]: 过去 24 小时 · 涉及 0 个竞品
+            - generic [ref=e287]: 今天暂无需要重点关注的变化

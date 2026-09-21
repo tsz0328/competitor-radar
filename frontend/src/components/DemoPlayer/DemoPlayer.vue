@@ -238,8 +238,8 @@ onBeforeUnmount(() => {
   <div class="player">
     <div ref="stageRef" class="stage">
       <div class="canvas" :style="{ transform: `scale(${scale})` }">
-        <!-- 底层：整体模糊 + 降饱和 -->
-        <div class="layer layer--blur">
+        <!-- 底层：非焦点区（降饱和 + 变淡） -->
+        <div class="layer layer--dim">
           <DemoShell :key="currentScene.id" :active-menu="currentScene.menu">
             <component :is="currentComp" :step="stepIdx" />
           </DemoShell>
@@ -331,10 +331,11 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
 }
-.layer--blur {
-  /* 弱化但要留住"这里有张真实界面"的信息量，压太狠就只剩一团糊 */
-  filter: blur(4.5px) saturate(0.4) contrast(0.95);
-  opacity: 0.82;
+.layer--dim {
+  /* 不做模糊（2026-09-20 用户选择）：背景保持完全可读，
+     只靠降饱和 + 轻微变淡把它压成"非重点"，焦点窗则由彩色 + 描边跳出 */
+  filter: saturate(0.55);
+  opacity: 0.9;
 }
 .layer--crisp {
   transition: clip-path 0.9s cubic-bezier(0.22, 1, 0.36, 1);

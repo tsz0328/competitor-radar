@@ -8,6 +8,7 @@ import {
 import { useAuthStore } from "@/stores/auth";
 import { useLlmStore } from "@/stores/llm";
 import { useNotificationStore } from "@/stores/notification";
+import { isTokenExpired } from "@/utils/authStorage";
 
 const router = useRouter();
 const notify = useNotificationStore();
@@ -28,6 +29,9 @@ function openNotification(id: number) {
 // 状态放进 store，设置页保存成功后 refresh，徽标即时同步
 const llmStore = useLlmStore();
 const llmStatus = computed(() => llmStore.status);
+
+// 帮助入口的地址：用 router.resolve 取，避免把 /help 写死（将来换 base 也不会失效）
+const helpHref = computed(() => router.resolve({ name: "Help" }).href);
 
 // 未读实时刷新：优先 SSE（高优事件产生即时推红点），失败/断线回退轮询
 function startPoll() {
@@ -62,9 +66,15 @@ function connectStream() {
     }
   };
   es.onerror = () => {
-    // 断线 / 401 / 代理不支持：关闭 SSE，回退轮询
     es?.close();
     es = null;
+    // 断流若是令牌过期导致：立即登出，别干等下一轮轮询（最多 60s 才踢）。
+    // 浏览器 EventSource 的 onerror 拿不到 HTTP 401 细节，这里改用本地 exp 判断。
+    if (isTokenExpired()) {
+      auth.logout();
+      return;
+    }
+    // 否则视为网络抖动 / 代理不支持：回退轮询
     if (!unreadTimer) startPoll();
   };
 }
@@ -107,7 +117,7 @@ onUnmounted(() => {
             :max="99"
             class="notify-badge"
           >
-            <div class="icon notify-trigger" @click="notify.load()">
+            <div class="icon icon-btn" @click="notify.load()">
               <el-icon><Bell /></el-icon>
             </div>
           </el-badge>
@@ -124,15 +134,14 @@ onUnmounted(() => {
             >
           </div>
           <div v-loading="notify.loading" class="notify-list">
-            <template v-if="notify.notifications.length">
+            <!-- 列表只列未读：读过的条目不再占位（未读数看角标） -->
+            <template v-if="notify.unreadList.length">
               <div
-                v-for="n in notify.notifications"
+                v-for="n in notify.unreadList"
                 :key="n.id"
                 class="notify-item"
-                :class="{ unread: !notify.isRead(n.id) }"
                 @click="openNotification(n.id)"
               >
-                <span v-if="!notify.isRead(n.id)" class="notify-dot" />
                 <div class="notify-main">
                   <div class="notify-name">{{ n.brand }}</div>
                   <div class="notify-text">{{ n.title }}</div>
@@ -145,15 +154,24 @@ onUnmounted(() => {
                 </div>
               </div>
             </template>
-            <div v-else class="notify-empty">暂无高优通知</div>
+            <div v-else class="notify-empty">没有未读通知</div>
           </div>
         </div>
       </el-popover>
-      <div class="icon">
+      <!-- 帮助：用 <a> + 新标签页打开使用文档。
+           同标签页跳走的话，用户从文档页点「返回首页」会离开应用回到落地页，
+           当前页面状态也一起丢了；新标签页则互不影响。 -->
+      <a
+        class="icon icon-btn"
+        :href="helpHref"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="使用文档（新标签页打开）"
+      >
         <el-icon>
           <QuestionFilled />
         </el-icon>
-      </div>
+      </a>
     </div>
   </div>
 </template>
@@ -220,8 +238,8 @@ onUnmounted(() => {
   transform: translate(12%, -12%);
 }
 
-/* 铃铛：图标居中（消除行盒导致的上偏）+ 悬浮 / 点击反馈 */
-.notify-trigger {
+/* 顶栏可点图标（铃铛 / 帮助）：图标居中（消除行盒导致的上偏）+ 悬浮 / 点击反馈 */
+.icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -231,13 +249,15 @@ onUnmounted(() => {
   border-radius: 50%;
   cursor: pointer;
   color: var(--app-text-color-regular);
+  /* 帮助入口是 <a>，清掉链接默认样式 */
+  text-decoration: none;
   transition: background-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
 }
-.notify-trigger:hover {
+.icon-btn:hover {
   background: color-mix(in oklch, var(--app-color-blue) 14%, transparent);
   color: var(--app-color-blue);
 }
-.notify-trigger:active {
+.icon-btn:active {
   background: color-mix(in oklch, var(--app-color-blue) 22%, transparent);
   transform: scale(0.9);
 }
@@ -272,17 +292,6 @@ onUnmounted(() => {
 }
 .notify-item:hover {
   background: #f7f9ff;
-}
-.notify-item.unread {
-  background: #f0f7ff;
-}
-.notify-dot {
-  width: 8px;
-  height: 8px;
-  margin-top: 0.6vh;
-  border-radius: 50%;
-  background: var(--el-color-danger);
-  flex-shrink: 0;
 }
 .notify-main {
   min-width: 0;

@@ -16,6 +16,25 @@ class ReportFavoriteIn(BaseModel):
     favorite: bool
 
 
+class ReportShareIn(BaseModel):
+    """生成免登录分享链接入参。"""
+
+    model_config = _CFG
+
+    # 有效期（天）；为空表示永久有效
+    expires_days: int | None = Field(default=None, ge=1, le=365)
+
+
+class ReportShareOut(BaseModel):
+    """免登录分享链接的响应（前端拼完整 URL 供复制）。"""
+
+    model_config = _CFG
+
+    token: str
+    # 生成时间+过期时间；expires_at 为空 = 永久有效
+    expires_at: str = ""
+
+
 class ReportListItemOut(BaseModel):
     model_config = _CFG
 
@@ -28,6 +47,7 @@ class ReportListItemOut(BaseModel):
     generated_at: str = ""
     favorite: bool = False
     month_group: str = ""
+    deleted_at: str = ""  # 非空 = 已移入回收站（回收站列表展示删除时间）
 
 
 class ReportListOut(BaseModel):
@@ -92,6 +112,9 @@ class ReportRelatedCompetitorOut(BaseModel):
     model_config = _CFG
 
     name: str
+    # 官网主机名：前端据此取竞品图标（favicon → apple-touch-icon → 解析首页
+    # → 首字母头像）。早期生成的周报内容里没有这个字段，缺失时前端走首字母。
+    domain: str = ""
     icon_text: str = "?"
     icon_bg: str = "#e8f0fe"
     icon_color: str = "#4285f4"
@@ -111,6 +134,7 @@ class ReportDetailOut(BaseModel):
 
     id: int
     title: str
+    type: str = "weekly"  # weekly | monthly
     type_label: str = "周报"
     range_start: str = ""
     range_end: str = ""
@@ -128,3 +152,12 @@ class ReportDetailOut(BaseModel):
     related_events: list[ReportRelatedEventOut] = Field(default_factory=list)
     related_competitors: list[ReportRelatedCompetitorOut] = Field(default_factory=list)
     ai_steps: list[ReportAiStepOut] = Field(default_factory=list)
+
+
+class ReportGenerateOut(BaseModel):
+    """生成接口的结果：每次调用都直接新建一份新的报告。"""
+
+    model_config = _CFG
+
+    status: str = "created"
+    report: ReportDetailOut | None = None

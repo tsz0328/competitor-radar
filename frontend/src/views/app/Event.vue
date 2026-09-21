@@ -4,8 +4,14 @@ import { useRoute, useRouter } from "vue-router";
 import { useEventStore } from "@/stores/event";
 import { useCompetitorStore } from "@/stores/competitor";
 import EventDetailDrawer from "@/components/EventDetailDrawer.vue";
+import CompetitorLogo from "@/components/CompetitorLogo.vue";
 import type { EventRecord } from "@/types/event";
-import { exportEventsCsv } from "@/utils/exportEvents";
+import {
+  EVENT_EXPORT_FORMATS,
+  exportEvents,
+  type EventExportFormat,
+} from "@/utils/exportEvents";
+import { formatDate, quickRangeDates } from "@/utils/dateRange";
 import {
   Search,
   Calendar,
@@ -17,6 +23,7 @@ import {
   MoreFilled,
   ArrowLeft,
   ArrowRight,
+  ArrowDown,
   Download,
 } from "@element-plus/icons-vue";
 
@@ -43,24 +50,15 @@ watch(
   },
 );
 
-// 默认近 7 天；formatDate 是函数声明会被提升，可提前调用
+// 默认近 7 天
 const dateRange = ref<[string, string] | null>(["", ""]);
-const activeRange = ref("7d"); // 当前选中的快捷预设：'' | 'today' | '7d' | '30d'
+const activeRange = ref("7d"); // 当前选中的快捷预设：'' | 'today' | '7d' | '30d' | '90d'
 
-function formatDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
+/** 切换快捷预设；key 为 '' 表示自定义区间（由日期选择器直接改 dateRange） */
 function setQuickRange(key: string) {
-  const end = new Date();
-  const start = new Date();
-  if (key === "7d") start.setDate(end.getDate() - 6);
-  else if (key === "30d") start.setDate(end.getDate() - 29);
-  else if (key !== "") return; // 自定义日期由日期选择器直接改 dateRange，这里不动
-  dateRange.value = [formatDate(start), formatDate(end)];
+  const range = quickRangeDates(key);
+  if (!range) return;
+  dateRange.value = range;
   activeRange.value = key;
 }
 
@@ -70,7 +68,7 @@ const sidePriorities = ref(["high", "mid", "low"]);
 const sideConfidence = ref<[number, number]>([0, 100]);
 
 const CATEGORY_KEYS = ["feature", "price", "content", "negative", "other"] as const;
-const RANGE_KEYS = ["today", "7d", "30d"] as const;
+const RANGE_KEYS = ["today", "7d", "30d", "90d"] as const;
 
 /**
  * 把 URL 上的筛选还原成页面状态。
@@ -252,9 +250,9 @@ function onSelectRelated(id: number) {
   detailId.value = id;
 }
 
-// 导出当前列表（已应用筛选/分页的记录）为 CSV
-function onExport() {
-  exportEventsCsv(eventStore.eventList?.records ?? []);
+// 导出当前列表（已应用筛选/分页的记录），格式由下拉菜单选
+function onExport(format: EventExportFormat) {
+  exportEvents(eventStore.eventList?.records ?? [], format);
 }
 
 // 按日期分组
@@ -287,6 +285,7 @@ const groups = computed(() => {
             { key: 'today', label: '今天' },
             { key: '7d', label: '近 7 天' },
             { key: '30d', label: '近 30 天' },
+            { key: '90d', label: '近 90 天' },
           ]"
           :key="r.key"
           :type="activeRange === r.key ? 'primary' : 'default'"
@@ -305,9 +304,31 @@ const groups = computed(() => {
         :prefix-icon="Calendar"
         @change="activeRange = ''"
       />
-      <el-button class="export-btn" :icon="Download" @click="onExport"
-        >导出</el-button
+      <!-- 导出表格：先选格式再下载，格式差异一句话说明 -->
+      <el-dropdown
+        class="export-btn"
+        trigger="click"
+        @command="onExport"
       >
+        <el-button :icon="Download">
+          导出表格
+          <el-icon class="export-caret"><ArrowDown /></el-icon>
+        </el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item
+              v-for="f in EVENT_EXPORT_FORMATS"
+              :key="f.value"
+              :command="f.value"
+            >
+              <div class="export-option">
+                <span class="export-option-label">{{ f.label }}</span>
+                <span class="export-option-hint">{{ f.hint }}</span>
+              </div>
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
     </div>
 
     <!-- 类型统计 -->
@@ -343,15 +364,13 @@ const groups = computed(() => {
                   <span class="time-dot" :class="item.priorityType"></span>
                 </div>
                 <div class="event-card card">
-                  <div
-                    class="event-logo"
-                    :style="{
-                      backgroundColor: item.iconBg,
-                      color: item.iconColor,
-                    }"
-                  >
-                    {{ item.iconText }}
-                  </div>
+                  <!-- 竞品图标：与竞品管理/工作台共用同一套多级回退 -->
+                  <CompetitorLogo
+                    :name="item.brand"
+                    :domain="item.domain"
+                    :src="item.logoUrl"
+                    :size="44"
+                  />
                   <div class="event-body">
                     <div class="event-head">
                       <span class="event-brand">{{ item.brand }}</span>
@@ -715,20 +734,6 @@ const groups = computed(() => {
   align-items: flex-start;
 }
 
-.event-logo {
-  width: 4vmax;
-  height: 4vmax;
-  min-width: 36px;
-  min-height: 36px;
-  border-radius: 0.6vmax;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.6vmax;
-  font-weight: bold;
-  flex-shrink: 0;
-}
-
 .event-body {
   flex: 1;
   display: flex;
@@ -945,6 +950,27 @@ const groups = computed(() => {
 
 .export-btn {
   margin-left: auto;
+}
+
+/* 导出按钮里的下拉箭头：与文字基线对齐，别把按钮撑高 */
+.export-caret {
+  margin-left: 0.3vw;
+}
+
+/* 下拉项：格式名 + 一句场景说明，左对齐 */
+.export-option {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.4;
+}
+
+.export-option-label {
+  font-size: 1.05vmax;
+}
+
+.export-option-hint {
+  font-size: 0.85vmax;
+  color: var(--app-color-gray);
 }
 
 .apply-btn {

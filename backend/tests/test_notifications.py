@@ -12,7 +12,10 @@ from app.models.user import User
 
 
 async def _make_user(session: object, username: str = "alice") -> User:
-    u = User(username=username, password_hash="hashed")
+    # 账号名与邮箱已解绑：造数据时账号名是自定义值，邮箱另给一个（也可以不给）
+    u = User(
+        username=username, email=f"{username}@test.local", password_hash="hashed"
+    )
     session.add(u)
     await session.commit()
     await session.refresh(u)
@@ -121,6 +124,57 @@ async def test_unread_count_endpoint(client: object, session: object) -> None:
     r = await client.get("/api/notifications/unread-count", headers=_auth(u))
     assert r.status_code == 200
     assert r.json()["unread"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# 高优事件推送：没绑邮箱就只推站内，不发邮件
+# --------------------------------------------------------------------------- #
+async def test_high_priority_without_email_skips_mail(monkeypatch) -> None:
+    """用户没绑邮箱时只推站内事件，**不发邮件**。
+
+    这里刻意不走「传空收件人」那条路——`notifier._recipients()` 对空收件人会回退到
+    `NOTIFY_RECIPIENTS`（运维邮箱），那会把**别人的**竞品情报投到运维信箱。
+    所以 analyzer 必须在没邮箱时直接跳过邮件分支，本用例就是钉住这一点。
+    """
+    from types import SimpleNamespace
+
+    from app.core import event_bus
+    from app.services import analyzer, notifier
+
+    mails: list[dict] = []
+    published: list[dict] = []
+
+    async def fake_notify(title: str, message: str, to: list[str] | None = None):
+        mails.append({"title": title, "to": to})
+        return True
+
+    class FakeBus:
+        async def publish(self, user_id: int, payload: dict) -> None:
+            published.append(payload)
+
+    monkeypatch.setattr(notifier, "notify", fake_notify)
+    monkeypatch.setattr(event_bus, "bus", FakeBus())
+
+    competitor = SimpleNamespace(name="竞品A", user_id=1)
+    source = SimpleNamespace(name="官网", url="https://example.com")
+    event = SimpleNamespace(
+        id=7,
+        title="价格变动",
+        summary="摘要",
+        event_type=list(EventType)[0],
+        priority="high",
+    )
+
+    # 没绑邮箱：站内事件照发，邮件不发
+    await analyzer._notify_high_priority(competitor, source, event, [])
+    assert mails == [], "没绑邮箱时不应该发任何邮件"
+    assert published == [{"type": "high_event", "eventId": 7}]
+
+    # 绑了邮箱：邮件发给本人
+    await analyzer._notify_high_priority(competitor, source, event, ["owner@example.com"])
+    assert len(mails) == 1
+    assert mails[0]["to"] == ["owner@example.com"]
+    assert len(published) == 2
 
 
 

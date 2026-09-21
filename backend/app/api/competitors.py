@@ -2,12 +2,12 @@ import logging
 import re
 import shutil
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -53,12 +53,16 @@ from app.services.analyzer import (
 from app.services.crawler import fetch_html
 from app.services.discoverer import discover_sources
 from app.services.favicon import resolve_favicon
+from app.services import icon_library
 from app.services.suggester import suggest_competitor
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/competitors", tags=["competitors"])
+
+# 回收站保留天数：超过此期限的软删除竞品会被惰性清理（连事件/快照一并清掉）
+TRASH_RETENTION_DAYS = 30
 
 
 def _remove_storage_folder(folder: Path) -> None:
@@ -197,11 +201,26 @@ async def suggest_competitor_profile(
 
 
 async def _get_owned(db: AsyncSession, competitor_id: int, current_user: User) -> Competitor:
-    """取出竞品并校验归属。
+    """取出**未删除**的竞品并校验归属（软删除的竞品对常规操作不可见）。
 
-    查不到时统一返回 404（不区分"不存在"和"不是你的"），
+    查不到时统一返回 404（不区分"不存在"、"已删除"和"不是你的"），
     避免泄露"这个 ID 确实存在但属于别人"这种信息。
     """
+    result = await db.execute(
+        select(Competitor).where(
+            Competitor.id == competitor_id,
+            Competitor.user_id == current_user.id,
+            Competitor.deleted_at.is_(None),
+        )
+    )
+    competitor = result.scalar_one_or_none()
+    if competitor is None:
+        raise BusinessError(ERR_COMPETITOR_NOT_FOUND, "竞品不存在", 404)
+    return competitor
+
+
+async def _get_any_owned(db: AsyncSession, competitor_id: int, current_user: User) -> Competitor:
+    """取出竞品并校验归属，**不限删除状态**——回收站的恢复/彻底删除用这个。"""
     result = await db.execute(
         select(Competitor).where(
             Competitor.id == competitor_id,
@@ -212,6 +231,41 @@ async def _get_owned(db: AsyncSession, competitor_id: int, current_user: User) -
     if competitor is None:
         raise BusinessError(ERR_COMPETITOR_NOT_FOUND, "竞品不存在", 404)
     return competitor
+
+
+async def _hard_delete_competitor(db: AsyncSession, competitor: Competitor) -> None:
+    """彻底删除一个竞品：级联删监控源，按其归属删事件/快照，并清存储目录。
+
+    抓取日志（crawl_logs）不含外键、属"历史现场"，按设计保留，不在此清理。
+    """
+    storage_folder = Path(settings.storage_dir) / str(competitor.id)
+    await db.execute(
+        delete(IntelligenceEvent).where(IntelligenceEvent.competitor_id == competitor.id)
+    )
+    await db.execute(
+        delete(PageSnapshot).where(PageSnapshot.competitor_id == competitor.id)
+    )
+    # monitor_sources 随 relationship 的 cascade="all, delete-orphan" 级联删
+    await db.delete(competitor)
+    await db.commit()
+    _remove_storage_folder(storage_folder)
+
+
+async def _purge_expired(db: AsyncSession) -> None:
+    """惰性清理：删除超过保留期的软删除竞品（含其事件/快照/存储）。
+
+    没有独立调度进程——在列表/回收站接口入口调用即可，查询成本低。
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=TRASH_RETENTION_DAYS)
+    rows = (
+        await db.execute(
+            select(Competitor).where(
+                Competitor.deleted_at.isnot(None), Competitor.deleted_at < cutoff
+            )
+        )
+    ).scalars().all()
+    for competitor in rows:
+        await _hard_delete_competitor(db, competitor)
 
 
 def _build_source(
@@ -282,7 +336,37 @@ async def create_competitor(
     """新增竞品（连同要监控的页面），自动归属当前登录用户。
 
     未显式配置监控页面时，兜底为官网首页建一个源——保证"填完就能开始监控"。
+
+    重加同竞品：若当前用户的回收站里已有**同官网**的竞品，直接恢复它
+    （清除删除标记、按提交的页面对齐监控源），其历史快照/事件/抓取记录
+    因 competitor_id 未变而自动连回，无需任何额外迁移。
     """
+    # official_url 已在 CompetitorCreate 里归一化，可直接用于精确匹配
+    trashed = (
+        await db.execute(
+            select(Competitor).where(
+                Competitor.user_id == current_user.id,
+                Competitor.official_url == payload.official_url,
+                Competitor.deleted_at.isnot(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if trashed is not None:
+        trashed.deleted_at = None
+        trashed.name = payload.name
+        if payload.category is not None:
+            trashed.category = payload.category
+        source_inputs = payload.sources or [MonitorSourceCreate(source_type=SourceType.HOMEPAGE)]
+        _sync_sources(trashed, source_inputs)
+        # 图标库优先：恢复的竞品若命中图标库，直接用后端托管图标
+        await icon_library.apply_icon_for_competitor(db, trashed)
+        await db.commit()
+        result = await db.execute(select(Competitor).where(Competitor.id == trashed.id))
+        restored = result.scalar_one()
+        out = CompetitorOut.model_validate(restored)
+        out.restored = True
+        return out
+
     competitor = Competitor(user_id=current_user.id, **payload.model_dump(exclude={"sources"}))
     db.add(competitor)
     await db.flush()  # 先拿到自增 id，监控源才能关联
@@ -290,6 +374,9 @@ async def create_competitor(
     source_inputs = payload.sources or [MonitorSourceCreate(source_type=SourceType.HOMEPAGE)]
     for item in source_inputs:
         db.add(_build_source(competitor.id, item, competitor.official_url or ""))
+
+    # 图标库优先：库里已有该域名图标就直接用（否则等首次抓取时解析官网）
+    await icon_library.apply_icon_for_competitor(db, competitor)
 
     await db.commit()
 
@@ -304,25 +391,81 @@ async def list_competitors(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
-    """只返回当前用户自己的竞品。"""
+    """只返回当前用户自己的**未删除**竞品。"""
+    await _purge_expired(db)  # 入口顺手清掉过期的回收站项
     result = await db.execute(
-        select(Competitor).where(Competitor.user_id == current_user.id).order_by(Competitor.id)
+        select(Competitor)
+        .where(Competitor.user_id == current_user.id, Competitor.deleted_at.is_(None))
+        .order_by(Competitor.id)
     )
     competitors = list(result.scalars().all())
     return await _with_change_counts(db, competitors)
 
 
+@router.get("/trash", response_model=list[CompetitorOut])
+async def list_trash(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """回收站：当前用户已软删除、尚在保留期内的竞品（含其变化数）。"""
+    await _purge_expired(db)
+    result = await db.execute(
+        select(Competitor)
+        .where(Competitor.user_id == current_user.id, Competitor.deleted_at.isnot(None))
+        .order_by(Competitor.deleted_at.desc())
+    )
+    competitors = list(result.scalars().all())
+    return await _with_change_counts(db, competitors)
+
+
+@router.post("/trash/{competitor_id}", response_model=CompetitorOut)
+async def restore_competitor(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    competitor_id: int,
+):
+    """从回收站恢复：清除删除标记，竞品与其全部历史数据重新可用。"""
+    competitor = await _get_any_owned(db, competitor_id, current_user)
+    if competitor.deleted_at is None:
+        raise BusinessError(ERR_COMPETITOR_NOT_FOUND, "该竞品不在回收站中", 400)
+    competitor.deleted_at = None
+    await db.commit()
+    result = await db.execute(select(Competitor).where(Competitor.id == competitor.id))
+    return result.scalar_one()
+
+
+@router.delete("/trash/{competitor_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def purge_competitor(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    competitor_id: int,
+):
+    """从回收站彻底删除：连竞品的事件与快照一并清除，不可恢复。
+
+    抓取日志按设计保留（历史现场），不受此影响。
+    """
+    competitor = await _get_any_owned(db, competitor_id, current_user)
+    if competitor.deleted_at is None:
+        raise BusinessError(ERR_COMPETITOR_NOT_FOUND, "该竞品不在回收站中", 400)
+    await _hard_delete_competitor(db, competitor)
+
+
 @router.get("/favicon", response_model=FaviconOut)
 async def competitor_favicon(
+    db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
     domain: str,
 ):
-    """解析竞品官网的真实图标地址（读首页 HTML 的 <link rel="icon">，按域名缓存）。
+    """解析竞品官网的图标地址：图标库优先，否则读首页 HTML 的 <link rel="icon">。
 
-    前端在直连 favicon.ico / apple-touch-icon.png 都失败时才调用，用于兜底那些
-    把真实图标挂在 CDN 上的 SPA 站点（如豆包）。必须声明在 `/{competitor_id}`
-    之前，否则 "favicon" 会被当成路径参数去匹配。
+    图标库里已有该域名条目时直接返回后端托管的图标；没有才按域名缓存地
+    抓官网解析。前端在直连 favicon.ico / apple-touch-icon.png 都失败时调用，
+    用于兜底那些把真实图标挂在 CDN 上的 SPA 站点（如豆包）。必须声明在
+    `/{competitor_id}` 之前，否则 "favicon" 会被当成路径参数去匹配。
     """
+    row = await icon_library.find_by_domain(db, domain)
+    if row is not None:
+        return FaviconOut(logo_url=icon_library.public_icon_url(row.file_name))
     return FaviconOut(logo_url=await resolve_favicon(domain))
 
 
@@ -433,21 +576,13 @@ async def delete_competitor(
     current_user: Annotated[User, Depends(get_current_user)],
     competitor_id: int,
 ):
+    """删除竞品：软删除（移入回收站）。
+
+    只置 deleted_at 标记，竞品行、监控源、历史快照、情报事件、抓取记录全部保留；
+    标记后全局查询都会把它过滤掉，体验等同删除。30 天内可在「回收站」恢复；
+    彻底删除（含事件/快照）只能在回收站里触发。
+    """
     competitor = await _get_owned(db, competitor_id, current_user)
-    source_ids = [source.id for source in competitor.sources]
-    if source_ids:
-        await db.execute(
-            update(IntelligenceEvent)
-            .where(IntelligenceEvent.source_id.in_(source_ids))
-            .values(source_id=None)
-        )
-        await db.execute(
-            update(PageSnapshot)
-            .where(PageSnapshot.source_id.in_(source_ids))
-            .values(source_id=None)
-        )
-    storage_folder = Path(settings.storage_dir) / str(competitor_id)
-    await db.delete(competitor)
+    competitor.deleted_at = datetime.now(timezone.utc)
     await db.commit()
-    _remove_storage_folder(storage_folder)
     # 204：删除成功，没有响应体

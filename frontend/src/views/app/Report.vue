@@ -1,12 +1,24 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { useReportStore } from "@/stores/report";
+import CompetitorLogo from "@/components/CompetitorLogo.vue";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import type { ReportListItem } from "@/types/report";
-import { generateReport } from "@/api/report";
+import type { ReportDetail, ReportListItem } from "@/types/report";
+import {
+  exportReportDocx,
+  exportReportPdf,
+  exportReportText,
+  generateReport,
+  deleteReport,
+  createReportShare,
+  revokeReportShare,
+  fetchReportShare,
+  type ReportExportFormat,
+  type ReportGenerateResult,
+} from "@/api/report";
 import DonutChart from "@/components/Charts/DonutChart.vue";
 import RankBarChart from "@/components/Charts/RankBarChart.vue";
 import CompareLineChart from "@/components/Charts/CompareLineChart.vue";
@@ -15,15 +27,18 @@ import {
   Star,
   StarFilled,
   Download,
+  ArrowDown,
   Share,
-  MoreFilled,
   Document,
   Monitor,
   Promotion,
   PriceTag,
   Warning,
   Filter,
-  Plus,
+  Calendar,
+  CopyDocument,
+  Printer,
+  Delete,
 } from "@element-plus/icons-vue";
 
 const reportStore = useReportStore();
@@ -80,6 +95,13 @@ const groupedReports = computed(() => {
 
 const detail = computed(() => reportStore.reportDetail);
 
+/** 当前详情是否为月报（用于"上周/上月"等环比措辞） */
+const detailIsMonthly = computed(() => detail.value?.typeLabel === "月报");
+const detailPeriod = computed(() => (detailIsMonthly.value ? "上月" : "上周"));
+const detailPeriodTitle = computed(() =>
+  detailIsMonthly.value ? "本月" : "本周",
+);
+
 // 后端 content 是 AI 生成的 Markdown，渲染进 v-html 前先用 DOMPurify 清一遍，避免注入脚本
 const renderedContent = computed(() => {
   const raw = detail.value?.content?.trim();
@@ -118,23 +140,54 @@ function motionWidth(changes: number): string {
   return `${Math.round((changes / maxCompetitorChanges.value) * 100)}%`;
 }
 
-// 手动生成本周周报（定时生成留待里程碑 10）
-const generating = ref(false);
+// 手动生成周报/月报（定时生成由后端调度）
+const generating = ref<"" | "weekly" | "monthly">("");
 
-async function onGenerate() {
+function applyGenerated(res: ReportGenerateResult) {
+  const report = res.report ?? reportStore.reportDetail;
+  if (!report) return;
+  activeId.value = report.id;
+  activeTab.value = "content";
+  reportStore.loadReportDetail(report.id);
+}
+
+async function doGenerate(reportType: "weekly" | "monthly") {
   if (generating.value) return;
-  generating.value = true;
+  generating.value = reportType;
+  const typeLabel = reportType === "monthly" ? "月报" : "周报";
   try {
-    const created = await generateReport();
-    ElMessage.success("周报已生成");
+    const res = await generateReport(reportType);
     await reportStore.loadReportList();
-    activeId.value = created.id;
-    activeTab.value = "content";
-    reportStore.loadReportDetail(created.id);
+    applyGenerated(res);
+    ElMessage.success(`${typeLabel}已生成`);
   } catch {
     // 失败提示由 request.ts 拦截器统一弹出
   } finally {
-    generating.value = false;
+    generating.value = "";
+  }
+}
+
+/** 删除报告：移入回收站，二次确认后调用接口 */
+async function onDeleteReport(id: number) {
+  try {
+    await ElMessageBox.confirm("删除后将移入回收站，保留期内可随时恢复。", "删除报告", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+  } catch {
+    return; // 用户取消
+  }
+  try {
+    await deleteReport(id);
+    ElMessage.success("已移入回收站");
+    if (activeId.value === id) {
+      activeId.value = null;
+      reportStore.reportDetail = null;
+    }
+    await reportStore.loadReportList();
+  } catch {
+    // 失败提示由 request.ts 拦截器统一弹出
   }
 }
 
@@ -147,17 +200,144 @@ async function onToggleFavorite(id: number) {
   }
 }
 
-function onDownload() {
-  if (!activeId.value) return;
-  window.open(`/api/reports/${activeId.value}/export`, "_blank", "noopener");
+/** 把打印页 HTML 写入新窗口并触发打印（用户可在打印对话框里「另存为 PDF」） */
+function openPrintWindow(html: string) {
+  const w = window.open("", "_blank", "noopener");
+  if (!w) {
+    ElMessage.warning("浏览器拦截了新窗口，请允许弹出窗口后重试");
+    return;
+  }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.addEventListener("load", () => {
+    w.focus();
+    w.print();
+  });
 }
 
-async function onShare() {
+/** 用 Blob 触发浏览器下载 */
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function onExport(format: ReportExportFormat) {
+  if (!activeId.value) return;
   try {
-    await navigator.clipboard.writeText(window.location.href);
+    if (format === "pdf") {
+      // 打印页是独立文档、需带 Authorization，故走已鉴权请求拉取后写入新窗口
+      openPrintWindow(await exportReportPdf(activeId.value));
+      return;
+    }
+    if (format === "docx") {
+      // Word 是二进制，直接取 Blob 下载
+      downloadBlob(await exportReportDocx(activeId.value), `周报_${activeId.value}.docx`);
+      return;
+    }
+    const text = await exportReportText(activeId.value, format);
+    const mime = format === "md" ? "text/markdown" : "text/html";
+    downloadBlob(
+      new Blob([text], { type: `${mime};charset=utf-8` }),
+      `周报_${activeId.value}.${format}`,
+    );
+  } catch {
+    // 401 / 网络错误已由 request 拦截器统一弹窗并跳登录
+  }
+}
+
+/** 打印：拉取独立打印页并触发浏览器打印对话框 */
+async function onPrint() {
+  if (!activeId.value) return;
+  try {
+    openPrintWindow(await exportReportPdf(activeId.value));
+  } catch {
+    // 401 / 网络错误已由 request 拦截器统一弹窗并跳登录
+  }
+}
+
+// ===== 分享 =====
+// 免登录链接 + 自包含分享文件，避免把「需登录的当前页地址」直接丢给别人。
+const shareVisible = ref(false);
+const shareExpires = ref<number | null>(null); // 天；null = 永久（已不提供，仅作类型兜底）
+const shareGenerating = ref(false);
+const shareRevoking = ref(false);
+const shareLoading = ref(false);
+const shareInfo = ref<{ token: string; expiresAt: string; url: string } | null>(null);
+
+/** 前端以当前站点 origin 拼完整分享链接（token 由后端生成） */
+const shareUrl = computed(
+  () => shareInfo.value?.url ?? "",
+);
+
+async function onShare() {
+  if (!activeId.value) return;
+  const id = activeId.value;
+  shareVisible.value = true;
+  shareInfo.value = null;
+  shareExpires.value = 1;
+  shareLoading.value = true;
+  try {
+    // 若已有有效的分享链接，重新打开时直接带出，便于复制/撤销
+    const existing = await fetchReportShare(id);
+    if (existing) {
+      shareInfo.value = {
+        token: existing.token,
+        expiresAt: existing.expiresAt,
+        url: `${window.location.origin}/api/share/${existing.token}`,
+      };
+    }
+  } catch {
+    // 失败提示由 request.ts 拦截器统一弹出
+  } finally {
+    shareLoading.value = false;
+  }
+}
+
+async function onGenerateShare() {
+  if (!activeId.value || shareGenerating.value) return;
+  shareGenerating.value = true;
+  try {
+    const res = await createReportShare(activeId.value, shareExpires.value);
+    shareInfo.value = {
+      token: res.token,
+      expiresAt: res.expiresAt,
+      url: `${window.location.origin}/api/share/${res.token}`,
+    };
+    ElMessage.success("免登录分享链接已生成");
+  } catch {
+    // 失败提示由 request.ts 拦截器统一弹出
+  } finally {
+    shareGenerating.value = false;
+  }
+}
+
+async function onCopyShare() {
+  try {
+    await navigator.clipboard.writeText(shareUrl.value);
     ElMessage.success("分享链接已复制到剪贴板");
   } catch {
-    ElMessage.warning("复制失败，请手动复制当前链接");
+    ElMessage.warning("复制失败，请手动选择复制");
+  }
+}
+
+async function onRevokeShare() {
+  if (!activeId.value || shareRevoking.value) return;
+  shareRevoking.value = true;
+  try {
+    await revokeReportShare(activeId.value);
+    shareInfo.value = null;
+    ElMessage.success("已撤销分享链接");
+  } catch {
+    // 失败提示由 request.ts 拦截器统一弹出
+  } finally {
+    shareRevoking.value = false;
   }
 }
 </script>
@@ -174,27 +354,56 @@ async function onShare() {
           clearable
         />
         <div class="side-filter-row">
-          <el-popover placement="bottom-start" trigger="click" width="220">
+          <el-popover placement="bottom-start" trigger="click" width="240" popper-class="report-filter-popper">
             <template #reference>
               <el-button :icon="Filter">筛选</el-button>
             </template>
             <div class="filter-pop">
-              <div class="filter-pop-label">报告类型</div>
-              <el-radio-group v-model="typeFilter" class="filter-pop-radios">
-                <el-radio value="all">全部</el-radio>
-                <el-radio value="weekly">周报</el-radio>
-                <el-radio value="monthly">月报</el-radio>
-              </el-radio-group>
-              <el-checkbox v-model="onlyFavorite">仅看收藏</el-checkbox>
+              <div class="filter-pop-title">
+                <el-icon><Filter /></el-icon>
+                <span>筛选报告</span>
+              </div>
+
+              <div class="filter-pop-block">
+                <div class="filter-pop-label">报告类型</div>
+                <el-radio-group v-model="typeFilter" class="filter-pop-radios">
+                  <el-radio-button value="all">全部</el-radio-button>
+                  <el-radio-button value="weekly">周报</el-radio-button>
+                  <el-radio-button value="monthly">月报</el-radio-button>
+                </el-radio-group>
+              </div>
+
+              <el-divider class="filter-pop-divider" />
+
+              <div class="filter-pop-block">
+                <el-checkbox v-model="onlyFavorite" class="filter-pop-fav">
+                  <span class="filter-pop-fav-text">
+                    <el-icon :size="14"><Star /></el-icon>
+                    仅看收藏
+                  </span>
+                </el-checkbox>
+              </div>
             </div>
           </el-popover>
           <el-button
             type="primary"
-            :icon="Plus"
-            :loading="generating"
-            @click="onGenerate"
+            :icon="Calendar"
+            :loading="generating === 'weekly'"
+            :disabled="!!generating"
+            @click="doGenerate('weekly')"
           >
-            生成
+            {{ generating === 'weekly' ? '生成周报中...' : '生成周报' }}
+          </el-button>
+          <el-button
+            type="primary"
+            plain
+            class="side-gen-monthly"
+            :icon="Calendar"
+            :loading="generating === 'monthly'"
+            :disabled="!!generating"
+            @click="doGenerate('monthly')"
+          >
+            {{ generating === 'monthly' ? '生成月报中...' : '生成月报' }}
           </el-button>
         </div>
 
@@ -225,6 +434,13 @@ async function onShare() {
               >
                 <StarFilled v-if="r.favorite" />
                 <Star v-else />
+              </el-icon>
+              <el-icon
+                class="report-item-del"
+                title="删除报告"
+                @click.stop="onDeleteReport(r.id)"
+              >
+                <Delete />
               </el-icon>
             </div>
           </div>
@@ -262,11 +478,32 @@ async function onShare() {
             >
               收藏
             </el-button>
-            <el-button :icon="Download" @click="onDownload">
-              导出 PDF
-            </el-button>
+            <el-dropdown @command="onExport">
+              <el-button :icon="Download">
+                导出
+                <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="pdf">
+                    PDF（打印后另存）
+                  </el-dropdown-item>
+                  <el-dropdown-item command="docx">Word (.docx)</el-dropdown-item>
+                  <el-dropdown-item command="md">Markdown</el-dropdown-item>
+                  <el-dropdown-item command="html">HTML</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
             <el-button :icon="Share" @click="onShare">分享</el-button>
-            <el-button :icon="MoreFilled" text />
+            <el-button :icon="Printer" @click="onPrint">打印</el-button>
+            <el-button
+              type="danger"
+              plain
+              :icon="Delete"
+              @click="onDeleteReport(detail.id)"
+            >
+              删除
+            </el-button>
           </div>
         </header>
 
@@ -289,7 +526,7 @@ async function onShare() {
             <!-- 报告内容 -->
             <div v-show="activeTab === 'content'" class="content-tab">
               <section class="section">
-                <h3 class="section-title">一、本周核心摘要</h3>
+                <h3 class="section-title">一、{{ detailPeriodTitle }}核心摘要</h3>
                 <p class="summary-text">{{ detail.summary }}</p>
                 <div class="stat-grid">
                   <div v-for="s in statCards" :key="s.key" class="stat-item">
@@ -301,7 +538,7 @@ async function onShare() {
                     </div>
                     <div class="stat-value">{{ s.value }}</div>
                     <div class="stat-delta" :class="s.deltaType">
-                      较上周 {{ s.deltaType === "up" ? "↑" : "↓" }}
+                      较{{ detailPeriod }} {{ s.deltaType === "up" ? "↑" : "↓" }}
                       {{ s.delta }}%
                     </div>
                   </div>
@@ -309,7 +546,7 @@ async function onShare() {
               </section>
 
               <section class="section">
-                <h3 class="section-title">二、本周重点变化</h3>
+                <h3 class="section-title">二、{{ detailPeriodTitle }}重点变化</h3>
                 <div
                   v-for="(h, i) in detail.highlights"
                   :key="h.id"
@@ -345,12 +582,7 @@ async function onShare() {
                     :key="c.name"
                     class="motion-item"
                   >
-                    <div
-                      class="motion-icon"
-                      :style="{ backgroundColor: c.iconBg, color: c.iconColor }"
-                    >
-                      {{ c.iconText }}
-                    </div>
+                    <CompetitorLogo :name="c.name" :domain="c.domain" :size="28" />
                     <div class="motion-name">{{ c.name }}</div>
                     <div class="motion-bar">
                       <i :style="{ width: motionWidth(c.changes) }" />
@@ -422,12 +654,7 @@ async function onShare() {
                 class="competitor-card"
                 @click="goToCompetitor(c.name)"
               >
-                <div
-                  class="competitor-logo"
-                  :style="{ backgroundColor: c.iconBg, color: c.iconColor }"
-                >
-                  {{ c.iconText }}
-                </div>
+                <CompetitorLogo :name="c.name" :domain="c.domain" :size="40" />
                 <div class="competitor-name">{{ c.name }}</div>
                 <div class="competitor-changes">{{ c.changes }} 条变化</div>
               </div>
@@ -458,6 +685,56 @@ async function onShare() {
         description="请选择左侧报告查看详情"
       />
     </main>
+
+    <!-- 分享周报：免登录分享链接（可设有效期） -->
+    <el-dialog v-model="shareVisible" title="分享周报" width="520px" append-to-body>
+      <div class="share-section">
+        <div class="share-section-title">免登录分享链接</div>
+        <p class="share-hint">
+          生成后对方无需登录、点开链接即可在网页查看本份报告。
+        </p>
+        <div class="share-expiry">
+          <span class="share-expiry-label">有效期</span>
+          <el-radio-group v-model="shareExpires">
+            <el-radio-button :value="1">1 天</el-radio-button>
+            <el-radio-button :value="7">7 天</el-radio-button>
+          </el-radio-group>
+          <el-button
+            type="primary"
+            :loading="shareGenerating"
+            :disabled="shareLoading"
+            @click="onGenerateShare"
+          >
+            生成链接
+          </el-button>
+        </div>
+
+        <div v-if="shareLoading" class="share-link-meta" style="margin-top: 1.6vh">
+          正在读取已分享的链接…
+        </div>
+
+        <template v-if="shareInfo">
+          <div class="share-link-row">
+            <el-input :model-value="shareUrl" readonly />
+            <el-button icon="CopyDocument" @click="onCopyShare">复制</el-button>
+          </div>
+          <div class="share-link-meta">
+            <span v-if="shareInfo.expiresAt">
+              于 {{ new Date(shareInfo.expiresAt).toLocaleString() }} 过期，过期后失效
+            </span>
+            <span v-else>永久有效</span>
+            <el-button
+              text
+              type="danger"
+              :loading="shareRevoking"
+              @click="onRevokeShare"
+            >
+              撤销链接
+            </el-button>
+          </div>
+        </template>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -492,12 +769,8 @@ async function onShare() {
 
 .side-filter-row {
   display: flex;
-  gap: 0.8vw;
-}
-
-.side-select {
-  flex: 1;
-  min-width: 0;
+  flex-wrap: wrap;
+  gap: 0.6vw;
 }
 
 .side-filter-row .el-button {
@@ -505,20 +778,92 @@ async function onShare() {
   font-size: 1vmax;
 }
 
+/* 筛选 与 生成周报 各占半行 */
+.side-filter-row > .el-popover,
+.side-filter-row > .el-button:not(.side-gen-monthly) {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.side-filter-row > .el-popover {
+  display: flex;
+}
+
+.side-filter-row > .el-popover .el-button {
+  flex: 1;
+  width: 100%;
+}
+
+/* 生成月报 独占一行 */
+.side-filter-row .side-gen-monthly {
+  flex: 1 1 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .filter-pop {
   display: flex;
   flex-direction: column;
-  gap: 1vh;
+  gap: 1.2vh;
+  padding: 0.4vh 0.2vw;
+}
+
+.filter-pop-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4vw;
+  font-size: 1.05vmax;
+  font-weight: 600;
+  color: var(--app-text-color-regular);
+}
+
+.filter-pop-title .el-icon {
+  color: var(--app-color-primary, #409eff);
+}
+
+.filter-pop-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9vh;
 }
 
 .filter-pop-label {
-  font-size: 1vmax;
-  font-weight: bold;
+  font-size: 0.95vmax;
+  font-weight: 600;
+  color: var(--app-color-gray, #909399);
 }
 
 .filter-pop-radios {
   display: flex;
-  gap: 1vw;
+  width: 100%;
+}
+
+.filter-pop-radios .el-radio-button {
+  flex: 1;
+}
+
+.filter-pop-radios .el-radio-button__inner {
+  width: 100%;
+  font-size: 0.95vmax;
+}
+
+.filter-pop-divider {
+  margin: 0.4vh 0;
+}
+
+.filter-pop-fav {
+  height: auto;
+}
+
+.filter-pop-fav .el-checkbox__label {
+  font-size: 0.95vmax;
+}
+
+.filter-pop-fav-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3vw;
 }
 
 .report-list {
@@ -604,6 +949,17 @@ async function onShare() {
 
 .report-item-star.is-fav {
   color: #f7ba2a;
+}
+
+.report-item-del {
+  font-size: 1.15vmax;
+  color: var(--app-color-gray);
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.report-item-del:hover {
+  color: var(--app-color-danger, #f56c6c);
 }
 
 .side-footer {
@@ -892,20 +1248,6 @@ async function onShare() {
   font-size: 1vmax;
 }
 
-.motion-icon {
-  width: 2.2vmax;
-  height: 2.2vmax;
-  min-width: 26px;
-  min-height: 26px;
-  border-radius: 0.5vmax;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1vmax;
-  font-weight: bold;
-  flex-shrink: 0;
-}
-
 .motion-name {
   width: 10vw;
   min-width: 90px;
@@ -1124,19 +1466,6 @@ async function onShare() {
   border-color: var(--app-color-primary);
 }
 
-.competitor-logo {
-  width: 3.5vmax;
-  height: 3.5vmax;
-  min-width: 36px;
-  min-height: 36px;
-  border-radius: 0.8vmax;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.4vmax;
-  font-weight: bold;
-}
-
 .competitor-name {
   font-size: 1vmax;
   font-weight: bold;
@@ -1168,5 +1497,52 @@ async function onShare() {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* ===== 分享对话框 ===== */
+.share-section + .share-section {
+  margin-top: 2.4vh;
+  padding-top: 2.4vh;
+  border-top: 1px solid var(--app-color-blue-light-4);
+}
+
+.share-section-title {
+  font-size: 1.1vmax;
+  font-weight: bold;
+  margin-bottom: 0.8vh;
+}
+
+.share-hint {
+  font-size: 0.95vmax;
+  color: var(--app-color-gray);
+  margin: 0 0 1.4vh;
+  line-height: 1.7;
+}
+
+.share-expiry {
+  display: flex;
+  align-items: center;
+  gap: 0.8vw;
+  flex-wrap: wrap;
+}
+
+.share-expiry-label {
+  font-size: 0.95vmax;
+  color: var(--app-color-gray);
+}
+
+.share-link-row {
+  display: flex;
+  gap: 0.6vw;
+  margin-top: 1.6vh;
+}
+
+.share-link-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.85vmax;
+  color: var(--app-color-gray);
+  margin-top: 0.8vh;
 }
 </style>

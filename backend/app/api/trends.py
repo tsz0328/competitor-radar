@@ -49,6 +49,7 @@ async def _get_owned_competitor(
             select(Competitor).where(
                 Competitor.id == competitor_id,
                 Competitor.user_id == current_user.id,
+                Competitor.deleted_at.is_(None),
             )
         )
     ).scalar_one_or_none()

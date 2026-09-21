@@ -12,6 +12,7 @@ import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { Close, Download } from "@element-plus/icons-vue";
 import { useEventStore } from "@/stores/event";
+import CompetitorLogo from "@/components/CompetitorLogo.vue";
 import { fetchEventSnapshots, fetchSnapshotRaw } from "@/api/event";
 import { exportEventMarkdown } from "@/utils/exportEvents";
 import type { EventSnapshot } from "@/types/event";
@@ -151,15 +152,34 @@ watch(
     size="min(760px, 94vw)"
     class="event-detail-drawer"
   >
-    <div v-loading="eventStore.detailLoading" class="detail-body">
-      <template v-if="detail">
-        <header class="detail-head">
-          <div
-            class="detail-logo"
-            :style="{ backgroundColor: detail.iconBg, color: detail.iconColor }"
-          >
-            {{ detail.iconText }}
+    <div class="detail-body">
+      <!-- 加载中给骨架屏：从通知/周报带 id 跳进来时抽屉会立刻滑出，详情还在路上，
+           原先只有一个居中转圈，整块抽屉看起来就是"半屏白板" -->
+      <el-skeleton v-if="eventStore.detailLoading" animated>
+        <template #template>
+          <div class="sk-head">
+            <el-skeleton-item variant="image" class="sk-logo" />
+            <div class="sk-head-main">
+              <el-skeleton-item variant="h3" style="width: 45%" />
+              <el-skeleton-item variant="text" style="width: 70%" />
+            </div>
           </div>
+          <el-skeleton-item variant="h3" style="width: 82%; margin-top: 2.5vh" />
+          <el-skeleton-item variant="text" style="width: 100%; margin-top: 1.2vh" />
+          <el-skeleton-item variant="text" style="width: 94%; margin-top: 0.8vh" />
+          <el-skeleton-item variant="text" style="width: 58%; margin-top: 0.8vh" />
+        </template>
+      </el-skeleton>
+
+      <template v-else-if="detail">
+        <header class="detail-head">
+          <!-- 与列表/其它页面共用同一套竞品图标（多级回退） -->
+          <CompetitorLogo
+            :name="detail.brand"
+            :domain="detail.domain"
+            :src="detail.logoUrl"
+            :size="48"
+          />
           <div class="detail-head-main">
             <div class="detail-brand-row">
               <span
@@ -340,6 +360,9 @@ watch(
           <div v-else class="detail-empty">暂无相关事件</div>
         </section>
       </template>
+
+      <!-- 既没详情也不在加载：通常是接口失败（错误提示由 request.ts 统一弹出） -->
+      <div v-else class="detail-empty">没能加载这条情报，请稍后重试</div>
     </div>
   </el-drawer>
 
@@ -368,26 +391,36 @@ watch(
   min-height: 240px;
 }
 
+/* 骨架屏：头部占位对齐真实布局（4vmax 图标 + 两行文字） */
+.sk-head {
+  display: flex;
+  align-items: center;
+  gap: 1vw;
+  padding-bottom: 1.5vh;
+}
+
+.sk-logo {
+  width: 4vmax;
+  height: 4vmax;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 0.6vmax;
+}
+
+.sk-head-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2vh;
+}
+
 .detail-head {
   display: flex;
   align-items: center;
   gap: 1vw;
   padding-bottom: 1.5vh;
   border-bottom: 1px solid #f0f0f0;
-}
-
-.detail-logo {
-  width: 4vmax;
-  height: 4vmax;
-  min-width: 44px;
-  min-height: 44px;
-  border-radius: 0.6vmax;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.6vmax;
-  font-weight: bold;
-  flex-shrink: 0;
 }
 
 .detail-head-main {

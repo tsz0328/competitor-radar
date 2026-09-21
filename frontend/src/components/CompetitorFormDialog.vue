@@ -1033,8 +1033,13 @@ async function handleSubmit() {
     } else {
       // 新建：跳过不可达的可选页（不写入失败地址），不阻断保存
       const payload = buildPayload(new Set<string>(pageBad));
-      await store.addCompetitor(payload);
-      ElMessage.success("竞品已添加，开始监控");
+      const created = await store.addCompetitor(payload);
+      if (created.restored) {
+        // 命中回收站里的同竞品：不是新建，而是恢复——历史数据随之连回
+        ElMessage.success(`已从回收站恢复「${form.name.trim()}」，其历史监控数据已重新连接`);
+      } else {
+        ElMessage.success("竞品已添加，开始监控");
+      }
       if (pageBad.length) {
         ElMessage.info(
           `有 ${pageBad.length} 个页面创建时无法访问，已跳过：${pageBad.map((t) => labelOf(t)).join("、")}，可稍后在详情中补充`,

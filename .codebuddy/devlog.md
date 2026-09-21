@@ -173,3 +173,39 @@
   1. 落地页虽有 `#preview` 锚点，但 hash 滚动会被 Vue Router 的 scrollBehavior 覆盖（初始导航结束后回顶）→ 写临时页把落地页装进 **1440×900 的 iframe**（同源可直接读 `contentDocument`），用 `setInterval` 反复 `scrollIntoView({block:'start', behavior:'instant'})` 覆盖 router 的回顶，再截图。
   2. `--force-prefers-reduced-motion` 可用来截「动画终态」——`--virtual-time-budget` 推不动 rAF 与 CSS transition，普通截图只能截到动画中途（本轮截到数字 9/20/4/2、折线只描一小段、洞察未浮现，正是这个原因，不是代码问题）。
 - 未做：`#preview` 的卡片视觉仍比真实 `Dashboard.vue` 简化（如真实 stat-card 带图标）；`Landing.vue` 的 hero 区及其余区块未动。
+
+### 2026-09-20 — 落地页删掉两个演示入口按钮，`#preview` 区块直接换成内嵌 DemoPlayer
+- 背景：用户提出「不需要『观看完整演示』和『查看产品演示』按钮了，把产品预览直接换成产品演示更好」——落地页只保留一个演示，且改成滚动即见，不再走弹窗。
+- 决策（控制条方案三选一，用户选「保留完整控制条」）：
+  1. **删按钮**：hero 只剩「开始使用」；`#preview` 标题行只留标题 + 副标题。导航与 footer 的文案「产品预览」→「产品演示」（**锚点 `#preview` 保留不动**，避免连带改 header/footer 的 href 与 `navItems`）。
+  2. **`#preview` 区块整块替换**：删掉静态假工作台 `preview-dashboard`（stats 卡 / SVG 折线 / 面积渐变 / AI 洞察列表）及全部相关 CSS，改为直接 `<DemoPlayer />`。配套的 `IntersectionObserver` 微动效（`.is-in` / 数字滚动 / 折线描出 / `.preview-line` / `.preview-area`）一并删除。
+  3. **删弹窗**：`el-dialog` 整段 + `showDemo` / `openDemo` / `demoStartScene` / `DEMO_VIDEO_URL` / `isDirectVideo`，以及 `previewRef` / `previewIn` / `previewStats` / `statShown` / `previewObserver` / `statRafId` / `prefersReduced` / `rollStats`。入口没了，视频/iframe 兜底分支也去掉（以后要换视频再单独加）。连带清理 6 个不再使用的图标 import（`CaretRight` / `Bell` / `QuestionFilled` / `ArrowDown` / `Calendar` / `ArrowRight`）、`computed` import、以及只在 dashboard 里用过的 `NAV_MENUS` import。
+  4. **内嵌后的必然补正**：`DemoPlayer` 的 `.player` 去掉 `max-width: calc(64vh * 1.6)`（那是为弹窗小屏防顶出视口而设），宽度改由父级 `.preview` 的 `padding: 5vh 12.5vw` 决定；`.preview-head` 由 `width: 75vw` 改 `100%`。
+- **一个内嵌才会暴露的坑（本轮主动修掉）**：若延续弹窗的「挂载即播」，访客还没滚到这一屏时开头就播完了。做法：`DemoPlayer.onMounted` 新增 `IntersectionObserver`（threshold 0.25），**首次滚入视口时把 `elapsedMs` 重置回起始幕并自断开**；`prefers-reduced-motion` 下不注册 observer、不自动播（停在首帧等点「继续演示」）。`onBeforeUnmount` 补 `io?.disconnect()`。注释里「适配弹窗宽度」等措辞同步改为「容器」。
+- 结果：`vue-tsc --noEmit` exit 0（零输出）。无头 Chromium 截图 + `--dump-dom` 校验：`查看产品演示` / `观看完整演示` / `产品预览` / `demo-dialog` 计数全为 0；`stage` / `ring` / `cursor` 各 1；HUD 四幕标签 = 竞品管理 / 情报中心 / **周度报告** / 趋势分析、控制条 2 个按钮；`DemoShell` 菜单 8 项（模糊层与清晰层各渲染一遍，故 DOM 里出现两遍，正常）；`--force-prefers-reduced-motion` 下 `play-mask` + 「继续演示」出现。验证截图留 `.codebuddy/verify-embed-demo.png`。
+- 删除量：`Landing.vue` 由 1626 行降到约 840 行。
+- 备注：① 本轮进行中用户已自行把改动提交进 `db096a2`（`git diff` 只剩用户自己的 footer 链接改 GitHub / `router-link`、未跟踪的 `Legal.vue` 与 `router/index.ts` 改动，均与本轮无关）。② **又一次靠 `--dump-dom` 纠正了肉眼误判**：缩略图里 HUD 第三格看着像「情报周报」，实际是「周度报告」。
+
+### 2026-09-20 — 微调：弱化层减轻模糊 + hero CTA 放大
+
+- 背景：用户反馈演示区非焦点区域糊得太狠、hero「开始使用」按钮偏小。
+- 操作：
+  - `DemoPlayer.vue` → `.layer--blur`：`blur(4.5px) saturate(.4) contrast(.95) opacity .82` → `blur(2.6px) saturate(.5) contrast(.97) opacity .86`。模糊半径 -42%，饱和度与不透明度回补一点，保住「结构可辨、文字读不了」的层次。
+  - `Landing.vue` → `.hero-actions-left` 覆写 `--btn-padding-y: 1.4vh` / `--btn-padding-x: 2.4vw` + `font-size: 1.8vmax` + `font-weight: bold`；顺手合并了两处重复的 `/* 开始使用按钮 */` 注释。
+- 决策：**只放大 hero 主 CTA，不改全局 `.el-button`**（页头「快速开始」、footer 保持原尺寸），落地页形成「一个主 CTA」的层级。
+- 验证：无头 Chromium 实拍 + 临时 iframe 页读 `getBoundingClientRect` 经 `--dump-dom` 取值 —— hero 按钮 **133×42 → 175×53**（字号 21.6px → 25.92px，+20%），页头按钮仍 134×42 未受影响。模糊新旧对照：`.codebuddy/verify-embed-demo.png`（旧 4.5px）vs `verify-demo-blur.png`（新 2.6px）。临时文件已删、dev server 已停。
+- 备注：blur 写在 `.canvas` 的 `transform: scale()` 内侧，视觉效果随舞台宽度等比缩放；调这个参数要在真实落地页宽度下判断，不能只看 1200×750 设计画布。
+
+### 2026-09-20 — 演示区弱化层彻底去掉模糊（选方案 A）
+
+- 背景：用户问「可以直接去掉模糊效果吗」。给了三档并写清代价：**A** 只去模糊、保留降饱和 + 变淡（推荐）；**B** 连降饱和也去掉（焦点窗只剩一个框，指向性基本消失）；**C** 保留极轻微模糊 `blur(1.2px)`（等于「别那么糊」的折中）。用户选 **A**。
+- 操作（`DemoPlayer.vue`）：
+  - `.layer--blur` → **`.layer--dim`** 改名（不再模糊，名字要跟得上），模板引用与注释同步改。
+  - 样式：`filter: blur(2.6px) saturate(.5) contrast(.97); opacity: .86` → **`filter: saturate(.55); opacity: .9`**。
+- **排查了一个假警报（值得记住的过程）**：首次截图发现焦点窗里是一整块**空白白卡**，怀疑改坏了（因为对照旧图同帧能看到表格内容）。用 `elementFromPoint` 定位到最上层是 `DIV.dlg`，再逐层比对：`.layer--dim` / `.layer--crisp` 里**各有一个 `.dlg`，rect 完全相同（438×352、rel 400,187）、子节点数相同（6）、文案相同，且 computed `opacity` 都为 0**。结论：截到的是「新增竞品」弹窗淡入的中间帧 —— **两层状态一致，说明不是回归**，是截图时机问题。
+- **可复用的稳定态核对法**（本次新增）：临时页 `iframe` 落地页（同源），在页面里做两件事 —— ① `display:none` 隐藏 `.play-mask`（否则遮罩盖住舞台）；② 点 `.seg[i]` seek 到第 i 幕；再用 `--force-prefers-reduced-motion` + `--screenshot` 截图。四幕稳定态的 `clip` / `ring` 值都随幕正确变化，渲染无异常。
+- 同状态 A/B 的做法：在核对页里**运行时注入**旧 `filter` 到 `.layer--dim`（`?blur=1` 开关），不改源码、不用回滚 —— 比"改回来再改回去"安全。
+- 结果：`.codebuddy/` 存 `verify-dim-scene3.png` / `verify-dim-scene4.png`（新）与 `verify-blur-before.png`（旧模糊同状态对照）。观感上背景完全可读、画面更亮更干净；代价是聚光感变弱，焦点窗靠"彩色 vs 灰白 + 蓝框"区分。
+- 备注：`vue-tsc` 未跑（纯 CSS + 类名改名，且页面已实际渲染成功，四幕截图即证据）。
+
+

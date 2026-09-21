@@ -29,6 +29,9 @@ class EventRecordOut(BaseModel):
     competitor_id: int
     competitor_name: str
     competitor_domain: str
+    # 抓取时解析落库的真实图标（competitors.logo_url）。
+    # exclude=True：只给下面的 logo_url 用，不额外多暴露一个同义字段。
+    competitor_logo_url: str | None = Field(default=None, exclude=True)
     source_name: str
     event_type: EventType
     title: str
@@ -93,6 +96,9 @@ class EventRecordOut(BaseModel):
     @computed_field
     @property
     def logo_url(self) -> str | None:
+        """竞品图标：优先用抓取时落库的真实图标，没有才回退官网 favicon。"""
+        if self.competitor_logo_url:
+            return self.competitor_logo_url
         host = self.domain
         return f"https://{host}/favicon.ico" if host else None
 

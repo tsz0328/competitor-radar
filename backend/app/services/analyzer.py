@@ -25,7 +25,7 @@ from app.models.event import IntelligenceEvent
 from app.models.snapshot import PageSnapshot
 from app.models.source import MonitorSource
 from app.models.user import User
-from app.services import browser, crawler, notifier
+from app.services import browser, crawler, favicon, icon_library, notifier
 from app.services.settings import get_user_llm_config
 
 settings = get_settings()
@@ -83,6 +83,35 @@ def _build_unified_diff(old_text: str, new_text: str, n: int) -> str:
     if len(text) > settings.crawl_max_diff_chars:
         text = text[: settings.crawl_max_diff_chars] + "\n...（差异过长，已截断）"
     return text
+
+
+async def _capture_logo_from_html(
+    db: AsyncSession, competitor: Competitor, source: MonitorSource, html_text: str
+) -> None:
+    """抓官网首页时顺手记下竞品的真实图标（图标库优先，否则解析 HTML）。
+
+    优先级：图标库（按域名，后端托管）→ 官网首页 HTML 的 <link rel="icon">。
+    首页 HTML 已经下载过了，解析 <link> 不需要再抓一次；只多一次
+    "确认它真是图片"的校验请求，之后全站都用这一个地址。
+
+    只在"还没有图标"且目标是官网首页时做，失败静默跳过 ——
+    图标只是锦上添花，绝不能因此影响抓取主流程。
+    """
+    if competitor.logo_url or source.source_type != SourceType.HOMEPAGE:
+        return
+    try:
+        # 图标库优先：命中后端托管图标就不再解析 HTML
+        await icon_library.apply_icon_for_competitor(db, competitor)
+        if competitor.logo_url:
+            return
+        candidate = favicon.pick_icon_from_html(html_text, source.url)
+        if not candidate or not await favicon.validate_icon(candidate):
+            return
+        competitor.logo_url = candidate
+        await favicon.remember_favicon(competitor.official_url or source.url, candidate)
+        logger.info("记录竞品图标 competitor=%s url=%s", competitor.id, candidate)
+    except Exception as exc:  # noqa: BLE001 - 图标解析失败不影响抓取
+        logger.warning("解析竞品图标失败 competitor=%s err=%s", competitor.id, type(exc).__name__)
 
 
 async def _last_success_snapshot(db: AsyncSession, source_id: int) -> PageSnapshot | None:
@@ -215,7 +244,12 @@ async def _notify_high_priority(
         from app.core.event_bus import bus
 
         await bus.publish(competitor.user_id, {"type": "high_event", "eventId": event.id})
-    await notifier.notify(title, message, to=notify_to)
+    # 邮件是第二条腿：用户没绑邮箱就**不发**，而不是让它回退给运维。
+    # notifier 的 _recipients() 在收件人为空时会回退到 NOTIFY_RECIPIENTS（运维邮箱），
+    # 那是给 scheduler 的系统级通知准备的兜底；用在这里会把「某个用户的竞品情报」
+    # 投到运维信箱。所以这里显式跳过，站内铃铛照发。
+    if notify_to:
+        await notifier.notify(title, message, to=notify_to)
 
 
 def _looks_like_html(html: str) -> bool:
@@ -316,6 +350,9 @@ async def _crawl_source_locked(
             fetch.elapsed_ms,
         )
 
+    # 顺手记下竞品图标：首页 HTML 已经在手，解析图标不用再抓一次
+    await _capture_logo_from_html(db, competitor, source, fetch.html)
+
     new_hash = crawler.compute_hash(text)
     previous = await _last_success_snapshot(db, source.id)
 
@@ -381,7 +418,8 @@ async def _crawl_source_locked(
     event_created = event is not None
 
     # 高优先级事件即时推送（独立于调度器整批结束后的汇总通知），让用户尽早收到提醒。
-    # 收件人取竞品归属用户在「用户中心」填的通知邮箱；没填则由 notifier 回退运维配置。
+    # 收件人取竞品归属用户在「用户中心」绑定的邮箱；**没绑就只推站内铃铛**，
+    # 不回落运维邮箱（回落会把别人的情报投到运维信箱，详见 _notify_high_priority）。
     if event is not None and event.priority == "high":
         owner_email = await db.scalar(
             select(User.email).where(User.id == competitor.user_id)

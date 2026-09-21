@@ -69,7 +69,7 @@ export const SCENES: DemoScene[] = [
     caption: "把要盯的竞品加进来",
     // 新增弹窗实测 430,204,520,402（居中，中心 x=690），四周留 14px
     focus: { x: 416, y: 190, w: 548, h: 430 },
-    stepMs: 2100,
+    stepMs: 1400,
     steps: [
       { name: "点新增竞品", cursor: { x: 1118, y: 98 } },
       { name: "填竞品名称", cursor: { x: 690, y: 292 } },
@@ -84,7 +84,7 @@ export const SCENES: DemoScene[] = [
     caption: "抓取比对，找出「变了什么」",
     // 左对齐列表：随内容区起点左移
     focus: { x: 186, y: 64, w: 540, h: 640 },
-    stepMs: 2100,
+    stepMs: 1400,
     steps: [
       { name: "打开情报流", cursor: { x: 320, y: 254 } },
       { name: "选中一条变化", cursor: { x: 550, y: 204 } },
@@ -108,7 +108,7 @@ export const SCENES: DemoScene[] = [
     caption: "一键把这周的情报写成周报",
     // 右对齐主栏：右边界固定，x 不随侧栏变化
     focus: { x: 396, y: 80, w: 782, h: 640 },
-    stepMs: 2200,
+    stepMs: 1400,
     steps: [
       { name: "点生成周报", cursor: { x: 1112, y: 98 } },
       { name: "AI 正在汇总", cursor: { x: 695, y: 224 } },
@@ -127,7 +127,7 @@ export const SCENES: DemoScene[] = [
     caption: "把零散变化读成一条走向",
     // 左对齐主栏：随内容区起点左移
     focus: { x: 186, y: 126, w: 674, h: 610 },
-    stepMs: 2100,
+    stepMs: 1400,
     steps: [
       { name: "选观察范围", cursor: { x: 900, y: 102 } },
       { name: "曲线铺开", cursor: { x: 530, y: 444 } },

@@ -1,17 +1,17 @@
 import enum
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
     Date,
+    DateTime,
     Enum,
     Index,
     Integer,
     String,
     Text,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -50,6 +50,15 @@ class WeeklyReport(Base, TimestampMixin):
     # 收藏：跟着账号走（服务端持久化，前端不再自己存 localStorage）
     favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    # 软删除（回收站）：非空表示已移入回收站，常规列表/详情不可见
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+    # 免登录分享：share_token 通过 /api/share/{token} 公开渲染；expires_at 为空 = 永久
+    share_token: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True, unique=True
+    )
+    share_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     summary: Mapped[str | None] = mapped_column(Text)  # AI 写的核心摘要
     content: Mapped[str | None] = mapped_column(Text)  # AI 写的周报正文（Markdown）
     # 结构化报表内容：stats / highlights / categoryDist / rank / trend / 关联事件等
@@ -57,5 +66,5 @@ class WeeklyReport(Base, TimestampMixin):
 
     __table_args__ = (
         Index("idx_report_user_created", "user_id", "created_at"),
-        UniqueConstraint("user_id", "range_start", name="uq_report_user_range_start"),
+        Index("idx_report_user_type_start", "user_id", "report_type", "range_start"),
     )

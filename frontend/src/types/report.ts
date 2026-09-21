@@ -22,6 +22,8 @@ export interface ReportListItem {
   favorite: boolean;
   /** 月份分组，如 2026年6月 */
   monthGroup: string;
+  /** 删除时间（回收站展示）；非空 = 已移入回收站 */
+  deletedAt?: string;
 }
 
 export interface ReportListResult {
@@ -90,6 +92,8 @@ export interface ReportRelatedEvent {
 /** 涉及竞品 */
 export interface ReportRelatedCompetitor {
   name: string;
+  /** 官网主机名：用它取竞品图标；早期生成的报告没有该字段，缺失时走首字母头像 */
+  domain?: string;
   iconText: string;
   iconBg: string;
   iconColor: string;

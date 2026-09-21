@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 
 from app.core.config import get_settings
 from app.core.event_types import EventType
+from app.schemas.source import normalize_url
 from app.core.network import validate_remote_url
 from app.core.security import create_access_token
 from app.core.source_registry import RenderMode, SourceType
@@ -31,7 +32,10 @@ from app.services.scheduler import count_due_sources
 # 测试 fixture 助手（与既有 test_notifications.py 风格一致）
 # --------------------------------------------------------------------------- #
 async def _make_user(session: object, username: str = "alice") -> User:
-    u = User(username=username, password_hash="hashed")
+    # email 已是必填的登录标识（与 username 恒等），造数据时必须一起给
+    u = User(
+        username=username, email=f"{username}@test.local", password_hash="hashed"
+    )
     session.add(u)
     await session.commit()
     await session.refresh(u)
@@ -154,9 +158,9 @@ async def test_event_date_filter_respects_local_day(
 
 
 # --------------------------------------------------------------------------- #
-# #5 手动生成周报：同一自然周重复请求复用已有报告，不新建
+# #5 手动生成周报：同一自然周重复请求每次都新建一份，可重复生成
 # --------------------------------------------------------------------------- #
-async def test_weekly_report_generate_is_idempotent(
+async def test_weekly_report_generate_creates_new_each_time(
     client: object, session: object
 ) -> None:
     # 关掉 LLM，避免测试去打真实模型；无 Key 时周报走规则兜底
@@ -167,13 +171,17 @@ async def test_weekly_report_generate_is_idempotent(
         "/api/reports/generate", params={"weeksAgo": 1}, headers=_auth(u)
     )
     assert r1.status_code == 200, r1.text
-    report_id = r1.json()["id"]
+    body1 = r1.json()
+    assert body1["status"] == "created"
+    report_id_1 = body1["report"]["id"]
 
+    # 同一自然周再次请求：直接生成一份新报告，不复用
     r2 = await client.post(
         "/api/reports/generate", params={"weeksAgo": 1}, headers=_auth(u)
     )
     assert r2.status_code == 200, r2.text
-    assert r2.json()["id"] == report_id  # 同一周复用
+    report_id_2 = r2.json()["report"]["id"]
+    assert report_id_2 != report_id_1
 
     total = (
         await session.execute(
@@ -182,7 +190,7 @@ async def test_weekly_report_generate_is_idempotent(
             .where(WeeklyReport.user_id == u.id)
         )
     ).scalar() or 0
-    assert total == 1
+    assert total == 2
 
 
 # --------------------------------------------------------------------------- #
@@ -201,10 +209,13 @@ async def test_delete_competitor_retains_events(
 
     comp_row = (
         await session.execute(
-            select(Competitor).where(Competitor.id == comp.id)
+            select(Competitor)
+            .where(Competitor.id == comp.id)
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
-    assert comp_row is None  # 竞品已删
+    assert comp_row is not None  # 软删除：行仍在
+    assert comp_row.deleted_at is not None  # 已移入回收站（30 天内可恢复）
 
     ev_row = (
         await session.execute(
@@ -214,7 +225,70 @@ async def test_delete_competitor_retains_events(
         )
     ).scalar_one_or_none()
     assert ev_row is not None  # 事件仍在
-    assert ev_row.source_id is None  # 但已与已删的监控源解绑
+    assert ev_row.source_id == src.id  # 软删除保留监控源关联，恢复后历史数据自动连回
+
+
+async def test_trash_restore_and_re_add_reconnects(
+    client: object, session: object
+) -> None:
+    """回收站回归：软删除后可恢复；重加同官网竞品会恢复原行、历史事件自动连回。"""
+    u = await _make_user(session)
+    comp = await _make_competitor(session, u.id)
+    comp.official_url = normalize_url("https://example.com")  # 与创建接口归一化口径一致
+    await session.commit()
+    await session.refresh(comp)
+    src = await _make_source(session, comp.id)
+    ev = await _make_event(session, comp.id, source_id=src.id)
+
+    # 移入回收站
+    r = await client.delete(f"/api/competitors/{comp.id}", headers=_auth(u))
+    assert r.status_code == 204, r.text
+
+    # 回收站可见，且常规列表不可见
+    trash = await client.get("/api/competitors/trash", headers=_auth(u))
+    assert trash.status_code == 200, trash.text
+    trash_ids = {c["id"] for c in trash.json()}
+    assert comp.id in trash_ids
+
+    normal = await client.get("/api/competitors", headers=_auth(u))
+    normal_ids = {c["id"] for c in normal.json()}
+    assert comp.id not in normal_ids
+
+    # 重加同官网竞品：命中回收站里的同名行 -> 直接恢复，restored=True，旧事件 competitor_id 不变
+    payload = {
+        "name": comp.name,
+        "official_url": comp.official_url,
+        "sources": [{"sourceType": "homepage", "url": comp.official_url, "enabled": True}],
+    }
+    ra = await client.post("/api/competitors", json=payload, headers=_auth(u))
+    assert ra.status_code == 201, ra.text
+    body = ra.json()
+    assert body["id"] == comp.id  # 复用原行
+    assert body.get("restored") is True  # 提示前端"已重新连接历史数据"
+
+    # 恢复后：常规列表可见、回收站不可见，历史事件连回
+    restored = (
+        await session.execute(
+            select(Competitor)
+            .where(Competitor.id == comp.id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    assert restored is not None and restored.deleted_at is None
+
+    normal_after = await client.get("/api/competitors", headers=_auth(u))
+    assert comp.id in {c["id"] for c in normal_after.json()}
+    trash_after = await client.get("/api/competitors/trash", headers=_auth(u))
+    assert comp.id not in {c["id"] for c in trash_after.json()}
+
+    ev_row = (
+        await session.execute(
+            select(IntelligenceEvent)
+            .where(IntelligenceEvent.id == ev.id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    assert ev_row is not None and ev_row.competitor_id == comp.id  # 历史数据连回
 
 
 # --------------------------------------------------------------------------- #

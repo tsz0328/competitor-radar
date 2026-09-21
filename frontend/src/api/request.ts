@@ -45,8 +45,23 @@ request.interceptors.response.use(
     }
     return body;
   },
-  (error) => {
-    const data = error.response?.data;
+  async (error) => {
+    let data = error.response?.data;
+    // 导出类接口（responseType 为 text / blob）出错时，错误体是未解析的字符串或
+    // Blob，这里统一还原成 JSON，保证认证类错误（401xx）仍能被识别、正确跳登录。
+    if (data instanceof Blob) {
+      try {
+        data = JSON.parse(await data.text());
+      } catch {
+        data = undefined;
+      }
+    } else if (typeof data === "string") {
+      try {
+        data = JSON.parse(data);
+      } catch {
+        data = undefined;
+      }
+    }
     // 后端统一错误壳：{ code, message, data }，优先用后端文案
     const code: number | undefined = data?.code;
     const serverMsg: string | undefined =

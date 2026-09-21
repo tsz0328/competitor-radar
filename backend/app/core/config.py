@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     bootstrap_admin_enabled: bool = False
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: str = ""
+    # 初始管理员邮箱：email 已是登录标识且必填（同 username 值），种入时必须一起给
+    bootstrap_admin_email: str = ""
     # 兜底时长：调用方没显式指定时用它（登录接口会按「记住我」传具体值）
     access_token_expire_minutes: int = 60 * 24 * 7  # 7 天
     # 登录时按「记住我」二选一：
@@ -70,6 +72,11 @@ class Settings(BaseSettings):
     crawl_min_text_length: int = 30
     # 存进快照的 diff 文本上限，防止整页改写时把库撑爆
     crawl_max_diff_chars: int = 4000
+
+    # ---- 竞品图标库 ----
+    # 管理员上传竞品图标的大小上限（字节）；文件落在 storage_dir/icons 下，
+    # 由 /api/icons 静态路由对外提供（见 services/icon_library.py）
+    icon_max_bytes: int = 2 * 1024 * 1024
     crawl_user_agent: str = (
         "Mozilla/5.0 (compatible; CRBot/0.1; +https://github.com/competitor-radar)"
     )
@@ -104,9 +111,12 @@ class Settings(BaseSettings):
     scheduler_batch_limit: int = 20
     # 同批相邻两次抓取之间的间隔（秒），做温和错峰，不做并发压测
     scheduler_jitter_seconds: float = 0.5
-    # 自动生成周报的时间（按服务器本地时间）：每周一 06:00
-    report_cron_day_of_week: str = "mon"
+    # 自动生成周报的时间（按服务器本地时间）：每周最后一天(周日) 06:00
+    report_cron_day_of_week: str = "sun"
     report_cron_hour: int = 6
+    report_cron_minute: int = 0
+    # 自动生成月报：每月最后一天 06:00（apscheduler 用 day='last'）
+    report_monthly_cron_day: str = "last"
 
     # ---- 通知推送（里程碑 10.2，可选）----
     notify_enabled: bool = False
@@ -121,6 +131,14 @@ class Settings(BaseSettings):
     notify_recipients: str = ""
     # 通知里"查看详情"跳转地址（前端部署地址）；用于高优先级事件即时通知的链接
     frontend_base_url: str = "http://localhost:5173"
+
+    # ---- 邮箱验证码（登录 / 重置密码）----
+    # 验证码有效期（秒）：超过即失效，需重新获取
+    email_code_ttl_seconds: int = 300
+    # 同一个邮箱两次获取之间的最小间隔（秒）：防连点刷接口
+    email_code_resend_seconds: int = 60
+    # 同一个邮箱每小时最多获取几次（按自然小时滑动窗口内的固定桶计数）
+    email_code_hourly_limit: int = 10
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_DIR / ".env",  # 从 backend/.env 读取

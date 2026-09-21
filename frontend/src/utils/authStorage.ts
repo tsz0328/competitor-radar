@@ -71,3 +71,32 @@ export function clearAuth(): void {
     store.removeItem(USER_KEY);
   }
 }
+
+/**
+ * 解码 JWT payload 的 exp（秒级 Unix 时间戳），不验签。
+ * 用途：前端「令牌是否已过期 → 提前跳登录」的体验优化，避免带着过期 token 先进页面再被踢。
+ * 真正的鉴权仍由后端 401 兜底；这里解析失败一律返回 null，交给后端判。
+ */
+export function getTokenExp(): number | null {
+  const token = readToken();
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(atob(b64)) as { exp?: number };
+    return typeof payload.exp === "number" ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 令牌是否已过期（留 30s 缓冲，避免临界点抖动误判）。
+ * 解析不出 exp 时按「未过期」处理——宁可让后端用 401 兜底，也不在前端误踢正常登录态。
+ */
+export function isTokenExpired(): boolean {
+  const exp = getTokenExp();
+  if (exp === null) return false;
+  return Date.now() / 1000 >= exp - 30;
+}

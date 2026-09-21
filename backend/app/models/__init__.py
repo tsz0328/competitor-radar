@@ -3,6 +3,7 @@ from app.models.base import Base
 from app.models.competitor import Competitor
 from app.models.crawl_log import CrawlLog
 from app.models.event import IntelligenceEvent
+from app.models.icon_library import IconLibrary
 from app.models.llm_provider import LlmProvider
 from app.models.notification import EventRead
 from app.models.setting import AppSetting
@@ -19,6 +20,7 @@ __all__ = [
     "Competitor",
     "CrawlLog",
     "IntelligenceEvent",
+    "IconLibrary",
     "LlmProvider",
     "EventRead",
     "MonitorSource",

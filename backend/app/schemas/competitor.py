@@ -1,6 +1,13 @@
 from datetime import datetime, timedelta, timezone
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 from pydantic.alias_generators import to_camel
 
 from app.core.timeutil import format_time, humanize_ago, to_utc
@@ -129,6 +136,14 @@ class CompetitorOut(BaseModel):
     category: str | None = None
     status: CompetitorStatus
     created_at: datetime
+    # 软删除标记：非空表示已移入回收站（回收站页展示用）
+    deleted_at: datetime | None = None
+    # 新增竞品时若命中回收站里的同竞品并恢复，返回 true（前端据此提示"已重新连接历史数据"）
+    restored: bool = False
+
+    # 真实图标地址：抓取时解析落库（见 models/competitor.py）；
+    # 为空由下面的 model_validator 回退到官网 favicon，前端再逐级兜底
+    logo_url: str = ""
 
     # 该竞品下的监控源（selectin 预加载，直接可读）
     sources: list[MonitorSourceOut] = Field(default_factory=list)
@@ -222,19 +237,18 @@ class CompetitorOut(BaseModel):
         return desc
 
 
-    @computed_field
-    @property
-    def logo_url(self) -> str | None:
-        """首选图标地址：竞品官网自身的 favicon。
+    @model_validator(mode="after")
+    def _fallback_logo_url(self):
+        """图标回退：优先用抓取时落库的真实图标，没有才回退官网 favicon。
 
         不用 Clearbit 之类的第三方 logo 服务——它们不稳定且部分已弃用，
         而且前端还有 favicon → apple-touch-icon → 首字母头像的多级回退。
         """
-        if not self.official_url:
-            return None
-        host = self.official_url.split("//")[-1].split("/")[0].strip()
-        host = host[4:] if host.startswith("www.") else host
-        return f"https://{host}/favicon.ico" if host else None
+        if not self.logo_url and self.official_url:
+            host = self.official_url.split("//")[-1].split("/")[0].strip()
+            host = host[4:] if host.startswith("www.") else host
+            self.logo_url = f"https://{host}/favicon.ico" if host else ""
+        return self
 
 
 class FaviconOut(BaseModel):

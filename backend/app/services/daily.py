@@ -34,6 +34,7 @@ async def _load_events(
         .join(Competitor, Competitor.id == IntelligenceEvent.competitor_id)
         .where(
             Competitor.user_id == user_id,
+            Competitor.deleted_at.is_(None),
             IntelligenceEvent.created_at >= since,
         )
         .order_by(IntelligenceEvent.created_at.desc(), IntelligenceEvent.id.desc())
@@ -44,7 +45,9 @@ async def _load_events(
 async def _competitor_names(db: AsyncSession, user_id: int) -> dict[int, str]:
     rows = (
         await db.execute(
-            select(Competitor.id, Competitor.name).where(Competitor.user_id == user_id)
+            select(Competitor.id, Competitor.name).where(
+                Competitor.user_id == user_id, Competitor.deleted_at.is_(None)
+            )
         )
     ).all()
     return {cid: (name or f"竞品{cid}") for cid, name in rows}

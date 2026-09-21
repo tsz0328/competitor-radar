@@ -11,7 +11,10 @@ from app.models.user import User
 
 
 async def _make_user(session: object, username: str) -> User:
-    u = User(username=username, password_hash="hashed")
+    # email 已是必填的登录标识（与 username 恒等），造数据时必须一起给
+    u = User(
+        username=username, email=f"{username}@test.local", password_hash="hashed"
+    )
     session.add(u)
     await session.commit()
     await session.refresh(u)

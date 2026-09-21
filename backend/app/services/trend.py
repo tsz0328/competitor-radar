@@ -50,7 +50,11 @@ async def build_series(
     stmt = (
         select(IntelligenceEvent.created_at, IntelligenceEvent.event_type)
         .join(Competitor, Competitor.id == IntelligenceEvent.competitor_id)
-        .where(Competitor.user_id == user_id, IntelligenceEvent.created_at >= since)
+        .where(
+            Competitor.user_id == user_id,
+            Competitor.deleted_at.is_(None),
+            IntelligenceEvent.created_at >= since,
+        )
     )
     if competitor_id is not None:
         stmt = stmt.where(IntelligenceEvent.competitor_id == competitor_id)
@@ -90,7 +94,11 @@ async def build_daily_totals(db: AsyncSession, user_id: int, days: int) -> list[
     stmt = (
         select(IntelligenceEvent.created_at)
         .join(Competitor, Competitor.id == IntelligenceEvent.competitor_id)
-        .where(Competitor.user_id == user_id, IntelligenceEvent.created_at >= since)
+        .where(
+            Competitor.user_id == user_id,
+            Competitor.deleted_at.is_(None),
+            IntelligenceEvent.created_at >= since,
+        )
     )
     buckets: dict[str, int] = {}
     for (created_at,) in (await db.execute(stmt)).all():
@@ -128,7 +136,7 @@ async def build_compare_series(
     competitors = (
         await db.execute(
             select(Competitor.id, Competitor.name)
-            .where(Competitor.user_id == user_id)
+            .where(Competitor.user_id == user_id, Competitor.deleted_at.is_(None))
             .order_by(Competitor.name)
         )
     ).all()
@@ -136,7 +144,11 @@ async def build_compare_series(
     stmt = (
         select(IntelligenceEvent.competitor_id, IntelligenceEvent.created_at)
         .join(Competitor, Competitor.id == IntelligenceEvent.competitor_id)
-        .where(Competitor.user_id == user_id, IntelligenceEvent.created_at >= since)
+        .where(
+            Competitor.user_id == user_id,
+            Competitor.deleted_at.is_(None),
+            IntelligenceEvent.created_at >= since,
+        )
     )
     buckets: dict[int, dict[str, int]] = {}
     for competitor_id, created_at in (await db.execute(stmt)).all():

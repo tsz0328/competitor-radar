@@ -9,6 +9,11 @@ import {
   type AdminUser,
 } from "@/api/admin";
 import { useAuthStore } from "@/stores/auth";
+import {
+  ACCOUNT_RULE_HINT,
+  isValidAccount,
+  normalizeAccount,
+} from "@/utils/validators";
 
 const authStore = useAuthStore();
 /** 当前登录管理员 id：不允许停用/删除自己（后端也会拦，前端置灰更直观） */
@@ -36,17 +41,19 @@ const dialogVisible = ref(false);
 const saving = ref(false);
 const editingId = ref<number | null>(null);
 const form = reactive({
+  // 登录账号名（自定义）：改它只动后端的 username 一列；不能撞别人绑定的邮箱
   username: "",
-  email: "",
   is_admin: false,
   is_active: true,
   new_password: "",
 });
+/** 打开弹窗时的原账号名：用于判断「是否真的改了」，避免保存原值时被格式规则拦住 */
+const originalUsername = ref("");
 
 function openEdit(row: AdminUser) {
   editingId.value = row.id;
+  originalUsername.value = row.username;
   form.username = row.username;
-  form.email = row.email;
   form.is_admin = row.is_admin;
   form.is_active = row.is_active;
   form.new_password = "";
@@ -54,8 +61,16 @@ function openEdit(row: AdminUser) {
 }
 
 async function submitEdit() {
-  if (!form.username.trim()) {
+  const username = normalizeAccount(form.username);
+  if (!username) {
     ElMessage.warning("账号不能为空");
+    return;
+  }
+  // 只有真的改了才校验格式：存量账号名可能是邮箱形态（验证码登录自动建号时
+  // 账号名就是邮箱、含 @），一律重校验会让「只改个启用状态」直接保存失败。
+  // 后端也是同样的处置（见 admin.py update_user）。
+  if (username !== originalUsername.value && !isValidAccount(username)) {
+    ElMessage.warning(ACCOUNT_RULE_HINT);
     return;
   }
   if (!form.is_active && editingId.value === selfId.value) {
@@ -73,8 +88,7 @@ async function submitEdit() {
   saving.value = true;
   try {
     await updateAdminUser(editingId.value as number, {
-      username: form.username.trim(),
-      email: form.email.trim(),
+      username,
       is_admin: form.is_admin,
       is_active: form.is_active,
       new_password: form.new_password || undefined,
@@ -149,7 +163,12 @@ onMounted(load);
 
     <section class="card table-card">
       <el-table :data="rows" v-loading="loading" size="large">
-        <el-table-column label="账号" prop="username" min-width="140" show-overflow-tooltip>
+        <el-table-column
+          label="账号"
+          prop="username"
+          min-width="180"
+          show-overflow-tooltip
+        >
           <template #default="{ row }">
             <span class="username">{{ row.username }}</span>
             <el-tag v-if="row.id === selfId" size="small" type="info" effect="plain">
@@ -160,7 +179,7 @@ onMounted(load);
         <el-table-column label="邮箱" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.email">{{ row.email }}</span>
-            <span v-else class="muted">未设置</span>
+            <span v-else class="muted">未绑定</span>
           </template>
         </el-table-column>
         <el-table-column label="角色" width="110">
@@ -206,14 +225,11 @@ onMounted(load);
     <el-dialog v-model="dialogVisible" title="修改用户" width="460px">
       <el-form label-position="top" autocomplete="off" @submit.prevent>
         <el-form-item label="账号">
-          <el-input v-model="form.username" maxlength="50" clearable />
-        </el-form-item>
-        <el-form-item label="通知邮箱">
           <el-input
-            v-model="form.email"
-            maxlength="100"
+            v-model="form.username"
+            maxlength="30"
             clearable
-            placeholder="留空表示不单独接收通知"
+            placeholder="登录账号，3–30 位，字母 / 数字 / 下划线 / 中划线"
           />
         </el-form-item>
         <el-form-item label="角色">

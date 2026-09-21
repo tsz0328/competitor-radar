@@ -22,6 +22,7 @@ import {
   HomeFilled,
   Tickets,
   UserFilled,
+  Delete,
 } from "@element-plus/icons-vue";
 
 export interface NavMenuItem {
@@ -47,7 +48,20 @@ export const NAV_MENUS: NavMenuItem[] = [
   { name: "Event", label: "情报中心", icon: List, adminOnly: false },
   { name: "Report", label: "周度报告", icon: Document, adminOnly: false },
   { name: "Trend", label: "趋势分析", icon: TrendCharts, adminOnly: false },
+  {
+    name: "Trash",
+    label: "回收站",
+    icon: Delete,
+    adminOnly: false,
+  },
   { name: "Setting", label: "设置", icon: Setting, adminOnly: false },
+  // 全部竞品：管理员查看所有用户添加的竞品并维护图标（仅管理员可见）
+  {
+    name: "AdminCompetitors",
+    label: "全部竞品",
+    icon: OfficeBuilding,
+    adminOnly: true,
+  },
   // 用户管理仅管理员可见
   { name: "UserManage", label: "用户管理", icon: UserFilled, adminOnly: true },
 ];

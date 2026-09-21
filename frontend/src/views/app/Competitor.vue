@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox, ElNotification } from "element-plus";
 import { useCompetitorStore } from "@/stores/competitor";
 import type { CompetitorItem, CrawlResult } from "@/types/competitor";
+import { purgeCompetitor } from "@/api/competitor";
 import CompetitorFormDialog from "@/components/CompetitorFormDialog.vue";
 import CompetitorLogo from "@/components/CompetitorLogo.vue";
 import {
@@ -197,24 +198,30 @@ function clampPage() {
   if (page.value > maxPage) page.value = maxPage;
 }
 
-async function handleDelete(item: CompetitorItem) {
-  try {
-    await ElMessageBox.confirm(
-      `确定删除「${item.name}」吗？该竞品的监控配置将一并删除，历史快照和情报事件会保留用于回溯，且不可恢复。`,
-      "删除竞品",
-      {
-        type: "warning",
-        confirmButtonText: "确认删除",
-        cancelButtonText: "取消",
-        confirmButtonClass: "el-button--danger",
-        draggable: true,
-      },
-    );
-  } catch {
-    return; // 用户点击取消
-  }
+/** 删除竞品：先弹「移到回收站 / 永久删除 / 取消」三选一，而不是直接硬删 */
+const deleteTarget = ref<CompetitorItem | null>(null);
+const deleteDialogVisible = ref(false);
+
+function handleDelete(item: CompetitorItem) {
+  deleteTarget.value = item;
+  deleteDialogVisible.value = true;
+}
+
+async function confirmMoveToTrash() {
+  const item = deleteTarget.value;
+  if (!item) return;
+  deleteDialogVisible.value = false;
   await store.removeCompetitor(item.id);
-  ElMessage.success(`已删除「${item.name}」`);
+  ElMessage.success(`已将「${item.name}」移入回收站，30 天内可在「回收站」恢复`);
+  clampPage();
+}
+
+async function confirmPermanentDelete() {
+  const item = deleteTarget.value;
+  if (!item) return;
+  deleteDialogVisible.value = false;
+  await purgeCompetitor(item.id);
+  ElMessage.success(`已永久删除「${item.name}」及其全部监控数据`);
   clampPage();
 }
 
@@ -338,7 +345,7 @@ async function handleRevive(item: CompetitorItem) {
         </el-select>
         <el-button
           :type="todayOnly ? 'primary' : 'default'"
-          plain
+          :plain="!todayOnly"
           @click="toggleTodayOnly"
           >仅看今日变化</el-button
         >
@@ -656,6 +663,38 @@ async function handleRevive(item: CompetitorItem) {
       v-model="dialogVisible"
       :competitor="editingCompetitor"
     />
+
+    <!-- 删除竞品：三选一（移到回收站 / 永久删除 / 取消） -->
+    <el-dialog
+      v-model="deleteDialogVisible"
+      title="删除竞品"
+      width="min(460px, 92vw)"
+      align-center
+      :close-on-click-modal="false"
+    >
+      <div class="delete-dialog-body">
+        <p>
+          确定要删除竞品
+          <strong>「{{ deleteTarget?.name }}」</strong>
+          吗？
+        </p>
+        <ul class="delete-options">
+          <li>
+            <b>移到回收站</b
+            >：竞品与其监控源、历史快照、情报事件全部保留，30 天内可在「回收站」恢复。
+          </li>
+          <li>
+            <b>永久删除</b
+            >：连同该竞品的全部监控记录、情报事件、历史快照一并清除，<em>不可恢复</em>。
+          </li>
+        </ul>
+      </div>
+      <template #footer>
+        <el-button @click="deleteDialogVisible = false">取消</el-button>
+        <el-button type="danger" @click="confirmPermanentDelete">永久删除</el-button>
+        <el-button type="primary" @click="confirmMoveToTrash">移到回收站</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -959,5 +998,28 @@ async function handleRevive(item: CompetitorItem) {
 }
 .card-actions .el-button {
   font-size: 1.5vmax;
+}
+
+/* 删除弹窗 */
+.delete-dialog-body p {
+  margin: 0 0 0.8vh;
+  line-height: 1.7;
+}
+.delete-options {
+  margin: 0;
+  padding-left: 1.2em;
+  color: var(--app-text-color-secondary);
+  font-size: 0.88vmax;
+  line-height: 1.7;
+}
+.delete-options li {
+  margin-bottom: 0.4vh;
+}
+.delete-options b {
+  color: var(--app-text-color-primary);
+}
+.delete-options em {
+  color: var(--el-color-danger);
+  font-style: normal;
 }
 </style>

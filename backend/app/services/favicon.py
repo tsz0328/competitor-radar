@@ -157,3 +157,42 @@ async def resolve_favicon(domain: str) -> str | None:
     await cache.set(key, url or "", _CACHE_TTL)
     logger.info("解析图标 host=%s ok=%s", host, bool(url))
     return url
+
+
+# ---- 抓取流程专用：复用"已经在手"的首页 HTML，零额外请求 ----
+
+def pick_icon_from_html(html_text: str, base_url: str) -> str | None:
+    """从已经下载好的 HTML 里挑一个图标候选地址（纯解析，不发任何请求）。
+
+    抓取官网首页时 HTML 本来就在手上，用这个函数拿候选不再多抓一次首页；
+    候选是否真的返回图片由 validate_icon() 校验。
+    """
+    urls = _pick_icon_urls(html_text, base_url)
+    return urls[0] if urls else None
+
+
+async def validate_icon(url: str) -> bool:
+    """确认候选地址真的返回图片（SPA 会把未知路径返回成 200 的 HTML）。"""
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=settings.crawl_timeout_seconds,
+            headers={
+                "User-Agent": settings.crawl_user_agent,
+                "Accept": "image/*,*/*;q=0.8",
+            },
+        ) as client:
+            return await _is_image(client, url)
+    except httpx.HTTPError:
+        return False
+
+
+async def remember_favicon(domain: str, url: str | None) -> None:
+    """把已解析（并已落库）的图标写进缓存。
+
+    这样前端兜底调 /api/competitors/favicon 时直接命中，不必再抓一次首页。
+    """
+    host = clean_host(domain)
+    if not host or " " in host:
+        return
+    await get_cache().set(f"{_CACHE_PREFIX}{host}", url or "", _CACHE_TTL)

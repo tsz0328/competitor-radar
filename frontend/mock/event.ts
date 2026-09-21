@@ -1,202 +1,222 @@
-import { MockMethod } from "vite-plugin-mock";
-import type { EventRecord } from "@/types/event";
+import {
+  EVENT_TYPES,
+  authUser,
+  cleanHost,
+  db,
+  err,
+  formatDateTime,
+  idFrom,
+  isoDate,
+  isoDateTime,
+  ok,
+  ownedCompetitorIds,
+  serializeEvent,
+  serializeEventDetail,
+} from "./db";
 
-// 模拟后端缓存：logo 只解析一次
-const logoCache = new Map<string, string>();
-function resolveLogo(domain: string): string {
-  if (!logoCache.has(domain)) {
-    logoCache.set(domain, `https://logo.clearbit.com/${domain}`);
-  }
-  return logoCache.get(domain)!;
+function requireUser(headers: any) {
+  const u = authUser(headers);
+  if (!u) return null;
+  return u;
 }
 
-// 原始“数据库”数据（后端返回前没有 logoUrl）
-const rawEvents = [
-  {
-    brand: "OpenAI",
-    domain: "openai.com",
-    iconText: "O",
-    iconBg: "#e6f7ff",
-    iconColor: "#1890ff",
-    time: "2小时前",
-    title: "OpenAI 调整 GPT-4o API 价格",
-    tag: "价格变动",
-    tagType: "tag-price",
-    desc: "GPT-4o 输入价格下调 20%。",
-    source: "官方定价页",
-  },
-  {
-    brand: "Anthropic",
-    domain: "anthropic.com",
-    iconText: "A",
-    iconBg: "#e6eaff",
-    iconColor: "#5b6fff",
-    time: "5小时前",
-    title: "Claude 发布 Claude 3.5 新模型",
-    tag: "新功能",
-    tagType: "tag-new",
-    desc: "提升长文本理解与代码生成。",
-    source: "官网公告",
-  },
-  {
-    brand: "Midjourney",
-    domain: "midjourney.com",
-    iconText: "M",
-    iconBg: "#e6fffb",
-    iconColor: "#13c2c2",
-    time: "1天前",
-    title: "Midjourney 推出视频生成",
-    tag: "新功能",
-    tagType: "tag-new",
-    desc: "支持文本生成视频。",
-    source: "官方公告",
-  },
-];
+function competitorOf(d: any, id: number) {
+  return d.competitors.find((c) => c.id === id);
+}
 
-// 事件流页面原始数据
-const rawEventRecords: EventRecord[] = [
-  {
-    id: 1,
-    date: "2026-06-25",
-    dateLabel: "今天",
-    time: "10:24",
-    brand: "OpenAI",
-    brandDesc: "API 部分价格调整",
-    domain: "openai.com",
-    iconText: "O",
-    iconBg: "#e6f7f0",
-    iconColor: "#10a37f",
-    tag: "价格变化",
-    tagType: "tag-price",
-    title: "OpenAI 调整了 GPT-4o 和 GPT-4o-mini 的 API 定价",
-    desc: "输入价格降低 20%，输出价格降低 10%。",
-    keywords: ["GPT-4o", "定价策略"],
-    aiConfidence: 92,
-    priority: "高",
-    priorityType: "high",
-    ago: "2 小时前",
-    category: "price",
-  },
-  {
-    id: 2,
-    date: "2026-06-25",
-    dateLabel: "今天",
-    time: "08:15",
-    brand: "Claude",
-    brandDesc: "发布 Claude 3.5 新模型",
-    domain: "anthropic.com",
-    iconText: "C",
-    iconBg: "#f5e8df",
-    iconColor: "#c96442",
-    tag: "功能更新",
-    tagType: "tag-new",
-    title: "Anthropic 正式发布 Claude 3.5",
-    desc: "显著提升了长文本理解和代码生成能力。",
-    keywords: ["Claude 3.5", "大语言模型"],
-    aiConfidence: 95,
-    priority: "高",
-    priorityType: "high",
-    ago: "4 小时前",
-    category: "feature",
-  },
-  {
-    id: 3,
-    date: "2026-06-25",
-    dateLabel: "今天",
-    time: "01:42",
-    brand: "Midjourney",
-    brandDesc: "上线视频生成功能",
-    domain: "midjourney.com",
-    iconText: "M",
-    iconBg: "#e6fffb",
-    iconColor: "#13c2c2",
-    tag: "内容更新",
-    tagType: "tag-update",
-    title: "Midjourney 正式上线 AI 视频生成功能",
-    desc: "支持文本生成 5 秒视频。",
-    keywords: ["视频生成", "AI 工具"],
-    aiConfidence: 88,
-    priority: "中",
-    priorityType: "mid",
-    ago: "11 小时前",
-    category: "content",
-  },
-  {
-    id: 4,
-    date: "2026-06-24",
-    dateLabel: "昨天",
-    time: "23:30",
-    brand: "Google Gemini",
-    brandDesc: "Gemini 1.5 Pro 上下文窗口升级",
-    domain: "google.com",
-    iconText: "G",
-    iconBg: "#e8f0fe",
-    iconColor: "#4285f4",
-    tag: "功能更新",
-    tagType: "tag-new",
-    title: "Gemini 1.5 Pro 的上下文窗口扩展至 200 万 tokens",
-    desc: "支持更长的文档和更复杂的任务。",
-    keywords: ["Gemini 1.5 Pro", "上下文窗口"],
-    aiConfidence: 90,
-    priority: "中",
-    priorityType: "mid",
-    ago: "昨天 23:30",
-    category: "feature",
-  },
-  {
-    id: 5,
-    date: "2026-06-24",
-    dateLabel: "昨天",
-    time: "18:20",
-    brand: "Perplexity",
-    brandDesc: "Perplexity 搜索质量引争议",
-    domain: "perplexity.ai",
-    iconText: "P",
-    iconBg: "#ececec",
-    iconColor: "#222222",
-    tag: "负面舆情",
-    tagType: "tag-negative",
-    title: "Reddit 和 X 平台上出现部分用户反馈",
-    desc: "Perplexity 搜索结果的准确性和可靠性有所下降。",
-    keywords: ["用户反馈", "准确性"],
-    aiConfidence: 72,
-    priority: "低",
-    priorityType: "low",
-    ago: "昨天 18:20",
-    category: "negative",
-  },
-];
+/** 事件列表：分类总结 + 优先级分面 + 记录（分页），仅限当前用户竞品产生的事件 */
+function listEvents(query: any, userId: number) {
+  const d = db();
+  const compById = Object.fromEntries(d.competitors.map((c) => [c.id, c]));
+  const ownIds = ownedCompetitorIds(userId);
+
+  const q = query || {};
+  const competitorId = q.competitorId ? Number(q.competitorId) : null;
+  const category = q.category || null;
+  const priorityList = q.priority
+    ? String(q.priority).split(",").filter(Boolean)
+    : [];
+  const minConf = q.minConfidence != null ? Number(q.minConfidence) : null;
+  const maxConf = q.maxConfidence != null ? Number(q.maxConfidence) : null;
+  const keyword = (q.keyword || "").trim().toLowerCase();
+  const days = q.days != null ? Number(q.days) : null;
+  const startDate = q.startDate || null;
+  const endDate = q.endDate || null;
+  const limit = q.limit != null ? Number(q.limit) : 50;
+  const offset = q.offset != null ? Number(q.offset) : 0;
+
+  const base = d.events.filter((e) => {
+    if (!ownIds.has(e.competitorId)) return false;
+    if (competitorId && e.competitorId !== competitorId) return false;
+    if (days) {
+      const cutoff = Date.now() - days * 86400000;
+      if (new Date(e.createdAt).getTime() < cutoff) return false;
+    }
+    if (startDate && e.createdAt.slice(0, 10) < startDate) return false;
+    if (endDate && e.createdAt.slice(0, 10) > endDate) return false;
+    const conf100 = Math.round((e.confidence ?? 0) * 100);
+    if (minConf != null && conf100 < minConf) return false;
+    if (maxConf != null && conf100 > maxConf) return false;
+    if (keyword) {
+      const comp = compById[e.competitorId];
+      const hay = `${e.title} ${e.summary} ${comp ? comp.name : ""}`.toLowerCase();
+      if (!hay.includes(keyword)) return false;
+    }
+    return true;
+  });
+
+  const catOf = (e: any) => EVENT_TYPES[e.eventType]?.category || "other";
+
+  // 分类总结：排除分类自身，但含优先级筛选
+  const forCategory = base.filter((e) => !priorityList.length || priorityList.includes(e.priority));
+  const summary: any = { total: 0, feature: 0, price: 0, content: 0, negative: 0, other: 0, high: 0, mid: 0, low: 0 };
+  for (const e of forCategory) {
+    summary.total += 1;
+    const cat = catOf(e);
+    if (cat in summary) summary[cat] += 1;
+  }
+
+  // 优先级分面：排除优先级自身，但含分类筛选
+  const forPriority = base.filter((e) => !category || catOf(e) === category);
+  for (const e of forPriority) summary[e.priority] += 1;
+
+  // 记录：分类 + 优先级 + 分页
+  const filtered = base.filter(
+    (e) =>
+      (!category || catOf(e) === category) &&
+      (!priorityList.length || priorityList.includes(e.priority)),
+  );
+  const total = filtered.length;
+  const records = filtered
+    .slice(offset, offset + limit)
+    .map((e) => serializeEvent(e, compById[e.competitorId]));
+
+  return { summary, total, records };
+}
 
 export default [
   {
-    url: "/api/events",
+    url: "/api/events/daily-insight",
     method: "get",
-    timeout: 300, // 模拟网络延迟
-    response: () => ({
-      code: 0,
-      data: rawEvents.map((e) => ({ ...e, logoUrl: resolveLogo(e.domain) })),
-    }),
+    timeout: 800,
+    response: ({ headers, query }: any) => {
+      const u = requireUser(headers);
+      if (!u) return err(40100, "未登录或登录已过期");
+      const d = db();
+      const days = query?.days ? Number(query.days) : 1;
+      const cutoff = Date.now() - days * 86400000;
+      const compById = Object.fromEntries(d.competitors.map((c) => [c.id, c]));
+      const ownIds = ownedCompetitorIds(u.id);
+      const recent = d.events.filter((e) => ownIds.has(e.competitorId) && new Date(e.createdAt).getTime() >= cutoff);
+      const highCount = recent.filter((e) => e.priority === "high").length;
+      const competitorCount = new Set(recent.map((e) => e.competitorId)).size;
+      const names = Array.from(new Set(recent.map((e) => compById[e.competitorId]?.name).filter(Boolean)));
+      const summaryText =
+        recent.length === 0
+          ? "暂未发现竞品动态，保持关注。"
+          : `近 ${days} 天共监测到 ${recent.length} 条竞品变化，涉及 ${competitorCount} 个竞品，其中高影响 ${highCount} 条。`;
+      return ok({
+        days,
+        periodText: days === 1 ? "过去 24 小时" : `过去 ${days} 天`,
+        eventCount: recent.length,
+        highCount,
+        competitorCount,
+        summary: summaryText,
+        highlights: names.slice(0, 4).map((n) => `${n} 有新的动态变化`),
+        fromLlm: false,
+        generatedAt: new Date().toISOString(),
+      });
+    },
   },
   {
-    url: "/api/events?limit=1",
+    url: "/api/events/related",
+    method: "get",
+    timeout: 200,
+    response: ({ headers, query }: any) => {
+      const u = requireUser(headers);
+      if (!u) return err(40100, "未登录或登录已过期");
+      const d = db();
+      const q = query || {};
+      const competitorId = Number(q.competitorId);
+      const excludeId = q.excludeId ? Number(q.excludeId) : null;
+      const days = q.days ? Number(q.days) : null;
+      const category = q.category || null;
+      const limit = q.limit ? Number(q.limit) : 8;
+      const compById = Object.fromEntries(d.competitors.map((c) => [c.id, c]));
+      const ownIds = ownedCompetitorIds(u.id);
+
+      const list = d.events
+        .filter((e) => ownIds.has(e.competitorId) && e.competitorId === competitorId)
+        .filter((e) => excludeId == null || e.id !== excludeId)
+        .filter((e) => !days || new Date(e.createdAt).getTime() >= Date.now() - days * 86400000)
+        .filter((e) => !category || (EVENT_TYPES[e.eventType]?.category || "other") === category)
+        .slice(0, limit);
+      return ok(list.map((e) => serializeEvent(e, compById[e.competitorId])));
+    },
+  },
+  {
+    url: "/api/events",
     method: "get",
     timeout: 300,
-    response: () => ({
-      code: 0,
-      data: {
-        summary: {
-          total: 5,
-          feature: 2,
-          price: 1,
-          content: 1,
-          negative: 1,
-          other: 0,
-        },
-        records: rawEventRecords.map((e) => ({
-          ...e,
-          logoUrl: resolveLogo(e.domain),
-        })),
-      },
-    }),
+    response: ({ headers, query }: any) => {
+      const u = requireUser(headers);
+      if (!u) return err(40100, "未登录或登录已过期");
+      return ok(listEvents(query, u.id));
+    },
   },
-] as MockMethod[];
+  {
+    url: "/api/events/:id/snapshots",
+    method: "get",
+    timeout: 200,
+    response: ({ headers, url, query }: any) => {
+      const u = requireUser(headers);
+      if (!u) return err(40100, "未登录或登录已过期");
+      const d = db();
+      const id = idFrom(url);
+      const e = d.events.find((x) => x.id === id);
+      if (!e || !ownedCompetitorIds(u.id).has(e.competitorId)) return err(40403, "事件不存在");
+      const limit = query?.limit ? Number(query.limit) : 10;
+      const base = new Date(e.createdAt).getTime();
+      const rows = Array.from({ length: Math.min(3, limit) }, (_, i) => {
+        const t = new Date(base - i * 6 * 3600000);
+        return {
+          id: id * 100 + i,
+          crawledAt: t.toISOString(),
+          crawledAtLabel: formatDateTime(t.toISOString()),
+          available: true,
+          changeDetected: i === 0,
+          isCurrent: i === 0,
+        };
+      });
+      return ok(rows);
+    },
+  },
+  {
+    url: "/api/events/:id",
+    method: "get",
+    timeout: 200,
+    response: ({ headers, url }: any) => {
+      const u = requireUser(headers);
+      if (!u) return err(40100, "未登录或登录已过期");
+      const d = db();
+      const id = idFrom(url);
+      const e = d.events.find((x) => x.id === id);
+      if (!e || !ownedCompetitorIds(u.id).has(e.competitorId)) return err(40403, "事件不存在");
+      return ok(serializeEventDetail(e, competitorOf(d, e.competitorId)));
+    },
+  },
+  {
+    url: "/api/snapshots/:id/raw",
+    method: "get",
+    rawResponse: async (req: any, res: any) => {
+      const snapshotId = idFrom(req.url || "");
+      const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>快照 #${snapshotId}</title></head><body><h1>页面原始快照</h1><p>抓取时间：${isoDateTime(new Date())}</p><pre>--- 变更差异 ---
++ 新增了定价说明段落
+- 旧的价格方案已下线
+（此处为 Mock 原始 HTML 内容，仅用于展示快照查看器）</pre></body></html>`;
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.end(html);
+    },
+  },
+];

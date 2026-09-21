@@ -8,7 +8,8 @@
 
 两个 job：
 - `crawl_due_sources`     按各源自己的 `interval_minutes` 到期抓取（含 LLM 分析与事件生成）
-- `generate_weekly_reports` 每周一自动生成上一自然周的周报，同一周已存在则跳过
+- `generate_weekly_reports`  每周日自动生成"本节竞品周报"，同一周已存在则跳过
+- `generate_monthly_reports` 每月末自动生成"本月竞品月报"，同一月已存在则跳过
 """
 import asyncio
 import logging
@@ -30,6 +31,7 @@ from app.models.competitor import Competitor, CompetitorStatus
 from app.models.crawl_log import TRIGGER_SCHEDULER
 from app.models.source import MonitorSource
 from app.models.user import User
+from app.models.weekly_report import ReportType
 from app.services import analyzer, notifier
 from app.services import report as report_service
 
@@ -38,10 +40,12 @@ settings = get_settings()
 
 JOB_CRAWL = "crawl_due_sources"
 JOB_REPORT = "generate_weekly_reports"
+JOB_MONTHLY_REPORT = "generate_monthly_reports"
 
 # 分布式锁的名字（多副本部署时保证同一批任务只由一个实例执行）
 LOCK_CRAWL = "scheduler:crawl-tick"
 LOCK_REPORT = "scheduler:weekly-report"
+LOCK_MONTHLY_REPORT = "scheduler:monthly-report"
 
 # 进程内单例；未启动时为 None
 _scheduler: AsyncIOScheduler | None = None
@@ -100,6 +104,7 @@ async def _crawl_due_sources_locked() -> int:
                 .join(Competitor, Competitor.id == MonitorSource.competitor_id)
                 .where(MonitorSource.enabled.is_(True))
                 .where(Competitor.status == CompetitorStatus.ACTIVE)
+                .where(Competitor.deleted_at.is_(None))
                 # 最久没抓的排前面（SQLite 里 NULL 在 ASC 时天然最前，正好让新源优先）
                 .order_by(MonitorSource.last_crawled_at.asc())
             )
@@ -148,41 +153,57 @@ async def _crawl_due_sources_locked() -> int:
 
 
 async def generate_weekly_reports() -> int:
-    """为每个用户生成上一自然周的周报；同一周已生成过则跳过，返回新生成的份数。
+    """为每个用户生成本周周报（周日触发，跨度=周一~今天）；同一周已存在则跳过。"""
+    return await _generate_period_reports(ReportType.WEEKLY, LOCK_REPORT)
+
+
+async def generate_monthly_reports() -> int:
+    """为每个用户生成本月月报（月末触发，跨度=本月1号~今天）；同一月已存在则跳过。"""
+    return await _generate_period_reports(ReportType.MONTHLY, LOCK_MONTHLY_REPORT)
+
+
+async def _generate_period_reports(report_type: ReportType, lock_name: str) -> int:
+    """生成某一自然期（周报/月报）的通用逻辑；同一期已存在则跳过，返回新生成份数。
 
     外层套分布式锁：`window_has_report` 的"查了再写"在多副本下存在竞态，
-    锁把它收敛成串行，保证同一周只生成一份。
+    锁把它收敛成串行，保证同一期只生成一份。
     """
-    async with _job_lock(LOCK_REPORT) as acquired:
+    async with _job_lock(lock_name) as acquired:
         if not acquired:
             return 0
-        return await _generate_weekly_reports_locked()
+        return await _generate_period_reports_locked(report_type)
 
 
-async def _generate_weekly_reports_locked() -> int:
+async def _generate_period_reports_locked(report_type: ReportType) -> int:
     """抢到锁之后的实际生成逻辑。"""
-    # 周一 06:00 触发时，生成本周还没结束，所以这里生成"上一个完整自然周"
-    start, _ = report_service.previous_window()
+    # 周报每周日触发、月报每月末触发，此时"当前自然期"恰好覆盖完整一周/一月，
+    # 直接用当前窗口（`_window` 结束日=今天）生成即可。
+    start, _ = report_service.current_window(report_type)
     created = 0
+    label = "月报" if report_type == ReportType.MONTHLY else "周报"
 
     async with SessionLocal() as db:
         users = (await db.execute(select(User))).scalars().all()
         for user in users:
             try:
-                if await report_service.window_has_report(db, user.id, start):
+                if await report_service.window_has_report(
+                    db, user.id, start, report_type
+                ):
                     continue
-                await report_service.generate_weekly_report(db, user, weeks_ago=1)
+                await report_service.generate_report(
+                    db, user, report_type=report_type
+                )
                 await db.commit()
                 created += 1
             except Exception:  # noqa: BLE001 - 单个用户失败不影响其他用户
                 await db.rollback()
-                logger.exception("调度器：生成周报失败 user=%s", user.id)
+                logger.exception("调度器：生成%s失败 user=%s", label, user.id)
 
     if created:
-        logger.info("调度器：已为 %d 个账号生成本周周报", created)
+        logger.info("调度器：已为 %d 个账号生成本%s", created, label)
         await notifier.notify(
-            "竞品雷达：本周周报已生成",
-            f"已为 {created} 个账号生成本周竞品周报，可在「AI 报告」页查看。",
+            f"竞品雷达：本{label}已生成",
+            f"已为 {created} 个账号生成本{'月' if report_type == ReportType.MONTHLY else '周'}竞品{label}，可在「AI 报告」页查看。",
         )
     return created
 
@@ -202,6 +223,7 @@ async def count_due_sources(db: AsyncSession, user_id: int) -> int:
                 MonitorSource.enabled.is_(True),
                 Competitor.user_id == user_id,
                 Competitor.status == CompetitorStatus.ACTIVE,
+                Competitor.deleted_at.is_(None),
             )
         )
     ).all()
@@ -230,8 +252,10 @@ def start_scheduler() -> None:
     scheduler.add_job(
         generate_weekly_reports,
         trigger=CronTrigger(
+            # 每周最后一天（周日）自动生成本周周报
             day_of_week=settings.report_cron_day_of_week,
             hour=settings.report_cron_hour,
+            minute=settings.report_cron_minute,
             timezone=settings.app_timezone,
         ),
         id=JOB_REPORT,
@@ -239,14 +263,33 @@ def start_scheduler() -> None:
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(
+        generate_monthly_reports,
+        trigger=CronTrigger(
+            # 每月最后一天自动生成本月月报（apscheduler 用 day='last'）
+            day=settings.report_monthly_cron_day,
+            hour=settings.report_cron_hour,
+            minute=settings.report_cron_minute,
+            timezone=settings.app_timezone,
+        ),
+        id=JOB_MONTHLY_REPORT,
+        name="每月竞品月报自动生成",
+        max_instances=1,
+        coalesce=True,
+    )
     scheduler.start()
     _scheduler = scheduler
     logger.info(
-        "调度器已启动：每 %ss 扫描一次到期监控源（单次上限 %s 个），周报每周 %s %02d:00 生成",
+        "调度器已启动：每 %ss 扫描一次到期监控源（单次上限 %s 个），"
+        "周报每周 %s %02d:%02d 生成，月报每月 %s %02d:%02d 生成",
         settings.scheduler_tick_seconds,
         settings.scheduler_batch_limit,
         settings.report_cron_day_of_week,
         settings.report_cron_hour,
+        settings.report_cron_minute,
+        settings.report_monthly_cron_day,
+        settings.report_cron_hour,
+        settings.report_cron_minute,
     )
 
 

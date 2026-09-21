@@ -52,6 +52,7 @@ def _high_conditions(current_user: User) -> list:
     """当前用户时间窗内的高优事件。"""
     return [
         Competitor.user_id == current_user.id,
+        Competitor.deleted_at.is_(None),  # 回收站里的竞品，其高优事件不计入通知
         IntelligenceEvent.priority == "high",
         IntelligenceEvent.created_at >= _notification_cutoff_utc(),
     ]
@@ -217,6 +218,7 @@ async def _mark_read(db: AsyncSession, user_id: int, event_id: int) -> None:
         .where(
             IntelligenceEvent.id == event_id,
             Competitor.user_id == user_id,
+            Competitor.deleted_at.is_(None),
         )
     )
     if owned is None:

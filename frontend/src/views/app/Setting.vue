@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { storeToRefs } from "pinia";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -42,11 +42,25 @@ import {
   type LlmTestResult,
 } from "@/api/setting";
 import { fetchSourceTypes } from "@/api/competitor";
-import { changeMyPassword, fetchMyProfile, updateMyProfile } from "@/api/user";
+import {
+  bindMyEmail,
+  changeMyPassword,
+  fetchMyProfile,
+  updateMyProfile,
+  type UserProfile,
+} from "@/api/user";
+import { sendEmailCode } from "@/api/auth";
 import { getSystemSettings, updateSystemSettings } from "@/api/admin";
 import UserAvatar from "@/components/UserAvatar.vue";
 import { useAuthStore } from "@/stores/auth";
 import { fileToSquareDataUrl } from "@/utils/image";
+import {
+  ACCOUNT_RULE_HINT,
+  isValidAccount,
+  isValidEmail,
+  normalizeAccount,
+  normalizeEmail,
+} from "@/utils/validators";
 // 服务商图标：本地静态资源，不再运行时请求官网
 import iconArk from "@/assets/providers/ark.png";
 import iconBailian from "@/assets/providers/bailian.ico";
@@ -81,7 +95,7 @@ const baseCategories = [
   {
     key: "account",
     label: "用户中心",
-    desc: "昵称、头像、账号与通知邮箱",
+    desc: "账号、邮箱、头像与密码",
     icon: UserIcon,
   },
 ];
@@ -131,10 +145,16 @@ watch(allowUnreachableOfficial, async (v) => {
 // 推荐优先勾选的页面（对竞品监控价值更高）
 const RECOMMENDED_TYPES = new Set<SourceType>(["pricing", "changelog"]);
 const typeOptions = ref<SourceTypeOption[]>([]);
+// 已保存的勾选快照：save 回填会以新数组引用触发 deep watch（Vue 3 deep watch 只看
+// effect 是否重跑，不看内容是否相同），若不比对，会形成「保存→回填→再保存」的循环弹窗。
+let lastSavedTypesSnapshot = "";
 watch(
   defaultSelectedTypes,
   async (v) => {
     if (!prefsReady.value) return;
+    const snapshot = JSON.stringify(v);
+    if (snapshot === lastSavedTypesSnapshot) return; // 回填导致的伪变化，跳过
+    lastSavedTypesSnapshot = snapshot;
     await preferences.save({ defaultSourceTypes: [...v] });
     ElMessage.success("默认勾选已保存");
   },
@@ -824,14 +844,17 @@ async function remove(p: LlmProvider) {
   }
 }
 
-// ---- 用户中心：账号资料 / 头像 / 通知邮箱 / 修改密码 ----
+// ---- 用户中心：账号资料 / 头像 / 邮箱绑定 / 修改密码 ----
 
 const account = reactive({
   // 昵称：初始化默认取账号（服务端没单独设过昵称时）
   nickname: "",
+  // 登录账号名（自定义；改名不需要验证码，但不能撞别人的邮箱）
   username: "",
+  // 绑定的邮箱；空串表示未绑定
   email: "",
   avatar: "",
+  // null 表示还没设过密码（验证码登录自动建的号），此时改密码无需原密码
   passwordLength: null as number | null,
 });
 const accountSaving = ref(false);
@@ -853,19 +876,145 @@ const accountPreviewUser = computed(() => ({
   avatar: account.avatar,
 }));
 
+/**
+ * 把服务端回传的资料写回本地状态 + auth store。
+ * 侧栏/顶栏的账号、邮箱、头像都读 store，同步一次三处一起刷新。
+ */
+function applyProfile(profile: UserProfile) {
+  const displayName = profile.nickname || profile.username;
+  account.nickname = displayName;
+  account.username = profile.username;
+  account.email = profile.email;
+  account.avatar = profile.avatar;
+  account.passwordLength = profile.passwordLength;
+  authStore.setUser({
+    id: profile.id,
+    name: displayName,
+    username: profile.username,
+    avatar: profile.avatar,
+    email: profile.email,
+    is_admin: profile.is_admin,
+  });
+}
+
 async function loadAccount() {
   try {
-    const profile = await fetchMyProfile();
     // 昵称初始化默认是账号：没单独设过昵称就用账号填上，不留空
-    account.nickname = profile.nickname || profile.username;
-    account.username = profile.username;
-    account.email = profile.email;
-    account.avatar = profile.avatar;
-    account.passwordLength = profile.passwordLength;
+    applyProfile(await fetchMyProfile());
   } catch {
     // 错误提示由 request.ts 统一弹出
   }
 }
+
+// ---- 邮箱绑定 / 换绑 / 解绑（独立于资料编辑：换绑必须先验新邮箱的验证码）----
+
+const editingEmail = ref(false);
+const emailSaving = ref(false);
+const emailForm = reactive({ email: "", code: "" });
+const emailCodeSending = ref(false);
+const emailCodeSeconds = ref(0);
+let emailCodeTimer: number | undefined;
+
+function stopEmailCodeTimer() {
+  if (emailCodeTimer !== undefined) {
+    window.clearInterval(emailCodeTimer);
+    emailCodeTimer = undefined;
+  }
+}
+
+async function sendBindCode() {
+  const email = emailForm.email.trim();
+  if (!email) {
+    ElMessage.warning("请先填写新邮箱");
+    return;
+  }
+  if (!isValidEmail(email)) {
+    ElMessage.warning("邮箱格式不正确");
+    return;
+  }
+  emailCodeSending.value = true;
+  try {
+    // 绑定与登录共用 login 场景：证明要求一样（「你能收到这个信箱的信」）
+    await sendEmailCode(normalizeEmail(email), "login");
+    ElMessage.success("验证码已发送，请查收邮箱（含垃圾箱）");
+    emailCodeSeconds.value = 60;
+    stopEmailCodeTimer();
+    emailCodeTimer = window.setInterval(() => {
+      emailCodeSeconds.value -= 1;
+      if (emailCodeSeconds.value <= 0) stopEmailCodeTimer();
+    }, 1000);
+  } catch (e) {
+    ElMessage.error((e as Error).message || "验证码发送失败");
+  } finally {
+    emailCodeSending.value = false;
+  }
+}
+
+function openEmailEdit() {
+  emailForm.email = "";
+  emailForm.code = "";
+  editingEmail.value = true;
+}
+
+function cancelEmailEdit() {
+  editingEmail.value = false;
+  emailForm.email = "";
+  emailForm.code = "";
+}
+
+async function saveEmail() {
+  const email = emailForm.email.trim();
+  if (!email) {
+    ElMessage.warning("请填写新邮箱");
+    return;
+  }
+  if (!isValidEmail(email)) {
+    ElMessage.warning("邮箱格式不正确");
+    return;
+  }
+  if (!emailForm.code.trim()) {
+    ElMessage.warning("请填写邮箱验证码");
+    return;
+  }
+  emailSaving.value = true;
+  try {
+    applyProfile(
+      await bindMyEmail({
+        email: normalizeEmail(email),
+        code: emailForm.code.trim(),
+      }),
+    );
+    cancelEmailEdit();
+    ElMessage.success("邮箱已绑定");
+  } catch {
+    // 错误提示由 request.ts 统一弹出
+  } finally {
+    emailSaving.value = false;
+  }
+}
+
+async function unbindEmail() {
+  try {
+    await ElMessageBox.confirm(
+      "解绑后这个邮箱不能再用于登录，也收不到邮件通知；账号只能用密码登录。",
+      "解绑邮箱",
+      { type: "warning", confirmButtonText: "解绑", cancelButtonText: "取消" },
+    );
+  } catch {
+    return; // 用户点了取消
+  }
+  emailSaving.value = true;
+  try {
+    applyProfile(await bindMyEmail({ email: "" }));
+    ElMessage.success("邮箱已解绑");
+  } catch {
+    // 错误提示由 request.ts 统一弹出
+  } finally {
+    emailSaving.value = false;
+  }
+}
+
+onBeforeUnmount(stopEmailCodeTimer);
 
 function pickAvatar() {
   avatarInputRef.value?.click();
@@ -891,19 +1040,7 @@ async function onAvatarPicked(event: Event) {
 /** 头像变更即时保存到服务端，并同步 auth store（侧栏/顶栏头像立刻跟着变） */
 async function persistAvatar() {
   try {
-    const profile = await updateMyProfile({ avatar: account.avatar });
-    account.nickname = profile.nickname || profile.username;
-    account.username = profile.username;
-    account.email = profile.email;
-    account.avatar = profile.avatar;
-    authStore.setUser({
-      id: profile.id,
-      name: profile.nickname || profile.username,
-      username: profile.username,
-      avatar: profile.avatar,
-      email: profile.email,
-      is_admin: profile.is_admin,
-    });
+    applyProfile(await updateMyProfile({ avatar: account.avatar }));
     ElMessage.success("头像已更新");
   } catch {
     // 错误提示由 request.ts 统一弹出
@@ -912,16 +1049,24 @@ async function persistAvatar() {
 
 /** 保存账号资料 +（可选）修改密码：成功后同步 auth store，侧边栏与只读展示立刻刷新 */
 async function saveAccount() {
-  if (!account.username.trim()) {
+  // 账号名：改名不需要验证码，但格式仍要合法（与后端同一套口径）
+  const username = normalizeAccount(account.username);
+  if (!username) {
     ElMessage.warning("账号不能为空");
+    return;
+  }
+  if (!isValidAccount(username)) {
+    ElMessage.warning(ACCOUNT_RULE_HINT);
     return;
   }
   // 三个密码框只要填了任意一个，就视为本次要改密码
   const changingPassword = Boolean(
     pwd.oldPassword || pwd.newPassword || pwd.confirmPassword,
   );
+  // 用验证码登录自动建的账号没有密码，此时无须填原密码（直接设置即可）
+  const hadPassword = account.passwordLength != null;
   if (changingPassword) {
-    if (!pwd.oldPassword) {
+    if (hadPassword && !pwd.oldPassword) {
       ElMessage.warning("请输入原密码");
       return;
     }
@@ -939,32 +1084,22 @@ async function saveAccount() {
     // 先改密码：原密码错误时直接中止，避免资料被单独改动
     if (changingPassword) {
       await changeMyPassword({
-        oldPassword: pwd.oldPassword,
+        // 没有原密码的账号不传该字段，后端据此跳过校验
+        oldPassword: hadPassword ? pwd.oldPassword : undefined,
         newPassword: pwd.newPassword,
       });
       pwd.oldPassword = "";
       pwd.newPassword = "";
       pwd.confirmPassword = "";
     }
-    const profile = await updateMyProfile({
-      nickname: account.nickname.trim(),
-      username: account.username.trim(),
-      email: account.email.trim(),
-      avatar: account.avatar,
-    });
-    account.nickname = profile.nickname || profile.username;
-    account.username = profile.username;
-    account.email = profile.email;
-    account.avatar = profile.avatar;
-    account.passwordLength = profile.passwordLength;
-    authStore.setUser({
-      id: profile.id,
-      name: profile.nickname || profile.username,
-      username: profile.username,
-      avatar: profile.avatar,
-      email: profile.email,
-      is_admin: profile.is_admin,
-    });
+    // 邮箱不在这条接口里改——换绑要验新邮箱的验证码，走 saveEmail
+    applyProfile(
+      await updateMyProfile({
+        username,
+        nickname: account.nickname.trim(),
+        avatar: account.avatar,
+      }),
+    );
     editingProfile.value = false;
     ElMessage.success(changingPassword ? "资料与密码已保存" : "账号资料已保存");
   } catch {
@@ -1292,7 +1427,9 @@ onMounted(async () => {
               <span class="panel-icon"><el-icon><UserIcon /></el-icon></span>
               <div>
                 <div class="panel-title">用户中心</div>
-                <div class="panel-desc">昵称、头像、账号与接收通知的邮箱</div>
+                <div class="panel-desc">
+                  账号、邮箱、昵称、头像与登录密码
+                </div>
               </div>
             </div>
           </div>
@@ -1315,7 +1452,8 @@ onMounted(async () => {
             支持 jpg / png / webp；会自动居中裁剪并压缩，修改后即时保存，无需点「保存资料」
           </div>
 
-          <!-- 只读展示：默认显示昵称 / 账号 / 密码 / 邮箱，点「修改」才变输入框 -->
+          <!-- 只读展示：昵称 / 账号 / 密码，点「修改」才变输入框。
+               顺序与下方编辑态保持一致（昵称在前），否则点「修改」会看到字段原地换位。 -->
           <div v-if="!editingProfile" class="account-info">
             <div class="info-item">
               <span class="info-label">昵称</span>
@@ -1332,16 +1470,12 @@ onMounted(async () => {
                 account.passwordLength == null ? "未设置" : "*".repeat(12)
               }}</span>
             </div>
-            <div class="info-item">
-              <span class="info-label">邮箱</span>
-              <span class="info-value">{{ account.email || "未设置" }}</span>
-            </div>
           </div>
           <div v-if="!editingProfile" class="actions">
             <el-button type="primary" @click="editingProfile = true">修改</el-button>
           </div>
 
-          <!-- 编辑态：昵称 / 账号 / 密码 / 邮箱，统一用底部「保存」提交 -->
+          <!-- 编辑态：昵称 / 账号 / 密码，统一用底部「保存」提交 -->
           <template v-if="editingProfile">
             <el-form label-position="top" autocomplete="off" @submit.prevent>
               <el-form-item label="昵称">
@@ -1355,12 +1489,12 @@ onMounted(async () => {
               <el-form-item label="账号">
                 <el-input
                   v-model="account.username"
-                  maxlength="50"
+                  maxlength="30"
                   clearable
-                  placeholder="登录用的账号，全局唯一"
+                  placeholder="登录账号，3–30 位，字母 / 数字 / 下划线 / 中划线"
                 />
               </el-form-item>
-              <el-form-item label="原密码">
+              <el-form-item v-if="account.passwordLength != null" label="原密码">
                 <!-- readonly + off：浏览器不会自动填充保存的密码；用户点一下聚焦即解除只读 -->
                 <el-input
                   v-model="pwd.oldPassword"
@@ -1392,17 +1526,12 @@ onMounted(async () => {
                   autocomplete="new-password"
                 />
               </el-form-item>
-              <el-form-item label="接收通知的邮箱">
-                <el-input
-                  v-model="account.email"
-                  maxlength="100"
-                  clearable
-                  placeholder="留空表示不单独接收，回退运维配置的收件人"
-                />
-              </el-form-item>
             </el-form>
             <div class="field-hint">
-              竞品出现高优先级变化时，即时通知会发到这个邮箱。
+              <template v-if="account.passwordLength == null">
+                当前账号还没有设置密码（用验证码登录时自动创建），直接填写新密码即可。
+              </template>
+              账号与邮箱都能用来登录；改账号不需要验证码，但邮箱要单独绑定。
             </div>
             <div class="actions">
               <el-button
@@ -1417,6 +1546,80 @@ onMounted(async () => {
               </el-button>
             </div>
           </template>
+
+          <!-- 邮箱：独立一块。绑定/换绑必须先验证新邮箱，否则谁都能把别人的邮箱占成自己的 -->
+          <div class="email-block">
+            <div v-if="!editingEmail" class="account-info">
+              <div class="info-item">
+                <span class="info-label">邮箱</span>
+                <span v-if="account.email" class="info-value">
+                  {{ account.email }}
+                </span>
+                <span v-else class="info-value muted">未绑定</span>
+              </div>
+            </div>
+            <div v-if="!editingEmail" class="actions">
+              <el-button @click="openEmailEdit">
+                {{ account.email ? "换绑邮箱" : "绑定邮箱" }}
+              </el-button>
+              <el-button
+                v-if="account.email"
+                :disabled="emailSaving"
+                @click="unbindEmail"
+              >
+                解绑
+              </el-button>
+            </div>
+
+            <template v-if="editingEmail">
+              <el-form label-position="top" autocomplete="off" @submit.prevent>
+                <el-form-item label="新邮箱">
+                  <el-input
+                    v-model="emailForm.email"
+                    clearable
+                    placeholder="登录、接收情报通知、找回密码都用它"
+                  />
+                </el-form-item>
+                <el-form-item label="邮箱验证码">
+                  <div class="code-row">
+                    <el-input
+                      v-model="emailForm.code"
+                      maxlength="6"
+                      placeholder="6 位验证码"
+                    />
+                    <el-button
+                      class="code-btn"
+                      :loading="emailCodeSending"
+                      :disabled="emailCodeSeconds > 0"
+                      @click="sendBindCode"
+                    >
+                      {{
+                        emailCodeSeconds > 0
+                          ? `${emailCodeSeconds}s`
+                          : "获取验证码"
+                      }}
+                    </el-button>
+                  </div>
+                </el-form-item>
+              </el-form>
+              <div class="field-hint">
+                绑定后可用它登录、接收高优先级情报通知，忘记密码时也能自助重置。
+                填了就必须验证——不验码的话，别人可以把你的邮箱绑成他的登录标识。
+              </div>
+              <div class="actions">
+                <el-button
+                  type="primary"
+                  :loading="emailSaving"
+                  @click="saveEmail"
+                >
+                  绑定
+                </el-button>
+                <el-button :disabled="emailSaving" @click="cancelEmailEdit">
+                  取消
+                </el-button>
+              </div>
+            </template>
+          </div>
         </section>
 
         <section v-show="activeCategory === 'system'" class="panel">
@@ -2197,7 +2400,7 @@ onMounted(async () => {
   display: none;
 }
 
-/* 资料只读展示：昵称 / 账号 / 邮箱 */
+/* 资料只读展示：昵称 / 账号 / 密码（顺序与编辑态一致） */
 .account-info {
   display: flex;
   flex-direction: column;
@@ -2225,6 +2428,30 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.info-value.muted {
+  color: var(--app-text-color-secondary);
+}
+
+/* 邮箱独立一块：与上方账号资料拉开距离，暗示「这是另一件事」 */
+.email-block {
+  margin-top: 2.4vh;
+  padding-top: 2vh;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+/* 验证码行：输入框占满剩余宽度，按钮不参与压缩 */
+.code-row {
+  display: flex;
+  gap: 0.8vw;
+  width: 100%;
+}
+.code-row :deep(.el-input) {
+  flex: 1;
+  min-width: 0;
+}
+.code-btn {
+  flex: none;
 }
 
 .footnote {

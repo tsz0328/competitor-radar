@@ -136,10 +136,13 @@ function onDocClick(e: MouseEvent) {
           <span class="footer-username" :title="user?.username || '未登录'">{{
             user?.username || "未登录"
           }}</span>
+          <!-- 第二行：绑定的邮箱（可用于登录、接收情报通知、找回密码）。
+               未绑定时明确写「未绑定邮箱」，别回退成账号名——那会和上一行完全重复，
+               而且会让人误以为账号名就是邮箱。 -->
           <span
             class="footer-account"
-            :title="user?.email || '通知邮箱未设置，用系统默认'"
-          >{{ user?.email || "通知邮箱未设置，用系统默认" }}</span>
+            :title="user?.email || '未绑定邮箱'"
+          >{{ user?.email || "未绑定邮箱" }}</span>
         </div>
         <el-icon
           class="footer-expand"

@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import {
   fetchNotifications,
   fetchUnreadCount,
@@ -7,6 +7,7 @@ import {
   markAllNotificationsRead,
 } from "@/api/notification";
 import type { NotificationRecord } from "@/types/event";
+import { useAuthStore } from "@/stores/auth";
 
 /**
  * 通知中心：消费后端"已推送的高优事件"（priority=high）。
@@ -33,10 +34,13 @@ export const useNotificationStore = defineStore("notification", () => {
     }
   }
 
-  function isRead(id: number) {
-    const item = notifications.value.find((n) => n.id === id);
-    return item ? item.isRead : false;
-  }
+  /**
+   * 通知中心只展示未读：列表是"待处理收件箱"，读过的条目就消失，
+   * 未读数继续由角标体现。标记已读后该条会自动从列表里移除。
+   */
+  const unreadList = computed(() =>
+    notifications.value.filter((n) => !n.isRead),
+  );
 
   /** 标记单条已读：调用后端，精确翻转该条 isRead，不覆盖整页列表 */
   async function markRead(id: number) {
@@ -58,8 +62,16 @@ export const useNotificationStore = defineStore("notification", () => {
     try {
       const data = await fetchUnreadCount();
       unreadCount.value = data.unread;
-    } catch {
-      /* 轮询失败静默：网络抖动/令牌过期不应打断界面 */
+    } catch (e) {
+      // 令牌过期（401xx）：显式走统一登出——拦截器其实已清 token 并跳登录，
+      // 这里不再「静默吞掉」，让轮询通道也主动登出，挂机用户能感知、不依赖拦截器副作用。
+      const code = (
+        e as { response?: { data?: { code?: number } } }
+      )?.response?.data?.code;
+      if (typeof code === "number" && Math.floor(code / 100) === 401) {
+        useAuthStore().logout();
+      }
+      // 其余（网络抖动）静默，不打断界面
     }
   }
 
@@ -70,10 +82,10 @@ export const useNotificationStore = defineStore("notification", () => {
 
   return {
     notifications,
+    unreadList,
     loading,
     unreadCount,
     load,
-    isRead,
     markRead,
     markAllRead,
     refreshUnread,

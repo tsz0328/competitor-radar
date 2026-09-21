@@ -26,13 +26,25 @@ ERR_USER_NOT_FOUND = 40402        # 查询用户：不存在
 ERR_COMPETITOR_NOT_FOUND = 40401  # 查询竞品：不存在
 ERR_EVENT_NOT_FOUND = 40403       # 查询情报事件：不存在
 ERR_REPORT_NOT_FOUND = 40404      # 查询周报：不存在
+ERR_SHARE_NOT_FOUND = 40405       # 免登录分享链接：不存在或已撤销
+ERR_SHARE_EXPIRED = 41001         # 免登录分享链接：已过期
 ERR_INVALID_SOURCE = 40002        # 新建监控源：缺少可用网址
 ERR_NO_ENABLED_SOURCE = 40003     # 手动抓取：该竞品没有启用的监控页面
 ERR_LLM_CONFIG_INVALID = 40004    # 保存模型设置：启用时配置不完整
 ERR_OLD_PASSWORD_WRONG = 40005    # 修改密码：原密码不正确（注意别用 401xx，前端会当成登录失效）
 ERR_EMAIL_INVALID = 40006         # 用户中心：邮箱格式不正确
 ERR_PASSWORD_TOO_SHORT = 40007    # 管理员重置密码：长度不足
+ERR_EMAIL_CODE_INVALID = 40008    # 邮箱验证码：错误或已过期
+ERR_EMAIL_CODE_TOO_FREQUENT = 40009  # 邮箱验证码：获取过于频繁（重发间隔 / 每小时上限）
+ERR_PASSWORD_NOT_SET = 40010      # 该账号未设置密码（验证码登录建的号），请改用验证码登录
+ERR_EMAIL_EXISTS = 40011          # 邮箱已被其它账号占用
+ERR_EMAIL_SEND_FAILED = 40012     # 验证码邮件发送失败（SMTP 未配置或发信被拒）
+ERR_ACCOUNT_INVALID = 40013       # 注册/改账号：账号名格式不合规（长度或字符集）
+ERR_IDENTIFIER_CONFLICT = 40014   # 该账号名或邮箱已被占用（两者共享同一命名空间）
+ERR_LOGIN_AMBIGUOUS = 40901       # 登录标识在库中命中多条（账号名与邮箱撞车，属数据异常）
+ERR_EMAIL_NOT_BOUND = 40015       # 该账号还没绑定邮箱（无法走邮件重置密码这条自助通道）
 ERR_FORBIDDEN = 40300           # 需要管理员权限
+ERR_INVALID_ICON = 40016        # 竞品图标上传：格式不合法 / 超限 / 为空
 
 # 前端据此判断是否清除 token 并跳登录页
 AUTH_ERROR_CODES = {
