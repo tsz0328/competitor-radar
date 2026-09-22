@@ -3,7 +3,7 @@ import { useRoute, useRouter } from "vue-router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ArrowDown } from "@element-plus/icons-vue";
 import Logo from "@/components/Logo.vue";
-import { NAV_MENUS } from "@/data/navMenu";
+import { ADMIN_NAV_MENUS, USER_NAV_MENUS } from "@/data/navMenu";
 import { fetchMyProfile } from "@/api/user";
 import { useAuthStore } from "@/stores/auth";
 import { avatarColor, avatarInitials } from "@/utils/avatar";
@@ -14,9 +14,9 @@ const activeMenu = ref(route.name);
 
 const auth = useAuthStore();
 const user = computed(() => auth.user);
-/** 侧边栏菜单：过滤掉仅管理员可见的项（普通用户不显示「用户管理」） */
+/** 侧边栏菜单：管理员进管理后台（管用户数据），普通用户看业务菜单 */
 const visibleMenus = computed(() =>
-  NAV_MENUS.filter((m) => !m.adminOnly || user.value?.is_admin),
+  user.value?.is_admin ? ADMIN_NAV_MENUS : USER_NAV_MENUS,
 );
 // 头像首字母与配色用账号，保证改名称时头像不跳色
 const displayName = computed(

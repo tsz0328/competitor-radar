@@ -4,9 +4,11 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { Refresh } from "@element-plus/icons-vue";
 import {
   deleteAdminUser,
+  getUserOverview,
   listAdminUsers,
   updateAdminUser,
   type AdminUser,
+  type UserOverview,
 } from "@/api/admin";
 import { useAuthStore } from "@/stores/auth";
 import {
@@ -22,17 +24,40 @@ const selfId = computed(() => authStore.user?.id ?? 0);
 const loading = ref(false);
 const rows = ref<AdminUser[]>([]);
 const keyword = ref("");
+const page = ref(1);
+const pageSize = ref(10);
+const total = ref(0);
 
 async function load() {
   loading.value = true;
   try {
-    rows.value = await listAdminUsers(keyword.value.trim() || undefined);
+    const res = await listAdminUsers({
+      keyword: keyword.value.trim() || undefined,
+      page: page.value,
+      page_size: pageSize.value,
+    });
+    rows.value = res.items;
+    total.value = res.total;
+  } catch {
+    // 错误提示由 request.ts 统一弹出
   } finally {
     loading.value = false;
   }
 }
 
 function onSearch() {
+  page.value = 1;
+  load();
+}
+
+function onPageChange(p: number) {
+  page.value = p;
+  load();
+}
+
+function onSizeChange(size: number) {
+  pageSize.value = size;
+  page.value = 1;
   load();
 }
 
@@ -49,6 +74,9 @@ const form = reactive({
 });
 /** 打开弹窗时的原账号名：用于判断「是否真的改了」，避免保存原值时被格式规则拦住 */
 const originalUsername = ref("");
+
+/** 当前正在编辑的是否为登录者本人：是则禁用「角色 / 启用状态」两项改动 */
+const editingIsSelf = computed(() => editingId.value === selfId.value);
 
 function openEdit(row: AdminUser) {
   editingId.value = row.id;
@@ -115,16 +143,29 @@ async function toggleActive(row: AdminUser) {
   }
 }
 
-// ---- 删除 ----
+// ---- 删除（需输入账号二次确认） ----
 async function onDelete(row: AdminUser) {
+  let input = "";
   try {
-    await ElMessageBox.confirm(
-      `将删除用户「${row.username}」及其名下全部竞品、监控、情报、报告等数据，且不可恢复。确定删除吗？`,
+    const { value } = await ElMessageBox.prompt(
+      `将删除用户「${row.username}」及其名下全部竞品、监控、情报、报告等数据，且不可恢复。`,
       "删除用户",
-      { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" },
+      {
+        type: "warning",
+        confirmButtonText: "删除",
+        cancelButtonText: "取消",
+        inputPlaceholder: `请输入账号「${row.username}」以确认`,
+        inputValidator: (v: string) =>
+          v === row.username ? true : `请输入正确账号「${row.username}」`,
+      },
     );
+    input = value;
   } catch {
     return; // 用户取消
+  }
+  if (input !== row.username) {
+    ElMessage.warning("账号不匹配，已取消删除");
+    return;
   }
   try {
     await deleteAdminUser(row.id);
@@ -133,6 +174,36 @@ async function onDelete(row: AdminUser) {
   } catch {
     // 错误提示由 request.ts 统一弹出
   }
+}
+
+// ---- 用户详情抽屉 ----
+const drawerVisible = ref(false);
+const overviewLoading = ref(false);
+const overview = ref<UserOverview | null>(null);
+
+async function openDetail(row: AdminUser) {
+  drawerVisible.value = true;
+  overviewLoading.value = true;
+  overview.value = null;
+  try {
+    overview.value = await getUserOverview(row.id);
+  } catch {
+    // 错误提示由 request.ts 统一弹出
+  } finally {
+    overviewLoading.value = false;
+  }
+}
+
+const detailTitle = computed(() =>
+  overview.value ? `用户详情：${overview.value.username}` : "用户详情",
+);
+
+/** 趋势柱状图：用最大值归一化每根柱的高度（百分比） */
+const trendMax = computed(() =>
+  Math.max(1, ...(overview.value?.event_trend.map((d) => d.count) ?? [1])),
+);
+function barHeight(count: number) {
+  return `${Math.max(4, Math.round((count / trendMax.value) * 100))}%`;
 }
 
 onMounted(load);
@@ -162,18 +233,25 @@ onMounted(load);
     </section>
 
     <section class="card table-card">
+      <header class="card-head">
+        <span class="card-title">用户列表</span>
+        <span class="card-hint">共 {{ total }} 个账号</span>
+      </header>
       <el-table :data="rows" v-loading="loading" size="large">
         <el-table-column
           label="账号"
           prop="username"
-          min-width="180"
-          show-overflow-tooltip
+          min-width="250"
         >
           <template #default="{ row }">
-            <span class="username">{{ row.username }}</span>
-            <el-tag v-if="row.id === selfId" size="small" type="info" effect="plain">
-              当前登录
-            </el-tag>
+            <span class="user-cell">
+              <el-link type="primary" :underline="false" @click="openDetail(row)">
+                <span class="username">{{ row.username }}</span>
+              </el-link>
+              <el-tag v-if="row.id === selfId" size="small" type="info" effect="plain">
+                当前登录
+              </el-tag>
+            </span>
           </template>
         </el-table-column>
         <el-table-column label="邮箱" min-width="200" show-overflow-tooltip>
@@ -201,23 +279,67 @@ onMounted(load);
             />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="170" fixed="right">
+        <el-table-column label="注册时间" prop="created_at" min-width="150">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openEdit(row)">修改</el-button>
-            <el-button
-              link
-              type="danger"
-              :disabled="row.id === selfId"
-              @click="onDelete(row)"
+            <span v-if="row.created_at">{{ row.created_at }}</span>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="最近活跃" min-width="150">
+          <template #default="{ row }">
+            <span v-if="row.last_login_at">{{ row.last_login_at }}</span>
+            <span v-else class="muted">从未登录</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="竞品" prop="competitor_count" width="90" align="right" sortable />
+        <el-table-column label="情报" prop="event_count" width="90" align="right" sortable />
+        <el-table-column label="周报" prop="report_count" width="90" align="right" sortable />
+        <el-table-column label="抓取日志" prop="crawl_log_count" width="110" align="right" sortable />
+        <el-table-column label="操作" width="190" fixed="right">
+          <template #default="{ row }">
+            <el-tooltip
+              :disabled="row.id !== selfId"
+              content="可修改账号 / 重置密码，但自己的角色与启用状态不可更改"
+              placement="top"
             >
-              删除
-            </el-button>
+              <el-button link type="primary" @click="openEdit(row)">修改</el-button>
+            </el-tooltip>
+            <el-tooltip
+              :disabled="row.id !== selfId"
+              content="不能删除当前登录账号"
+              placement="top"
+            >
+              <span>
+                <el-button
+                  link
+                  type="danger"
+                  :disabled="row.id === selfId"
+                  @click="onDelete(row)"
+                >
+                  删除
+                </el-button>
+              </span>
+            </el-tooltip>
           </template>
         </el-table-column>
       </el-table>
 
-      <div v-if="!loading && rows.length === 0" class="empty-hint">
-        没有匹配的用户
+      <el-empty
+        v-if="!loading && rows.length === 0"
+        description="没有匹配的用户"
+      />
+
+      <div v-if="total > 0" class="pagination">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next"
+          :total="total"
+          :current-page="page"
+          :page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          @current-change="onPageChange"
+          @size-change="onSizeChange"
+        />
       </div>
     </section>
 
@@ -235,18 +357,26 @@ onMounted(load);
         <el-form-item label="角色">
           <el-switch
             v-model="form.is_admin"
+            :disabled="editingIsSelf"
             active-text="管理员"
             inactive-text="普通用户"
             inline-prompt
           />
+          <span v-if="editingIsSelf" class="field-tip">
+            不能取消自己的管理员权限，请由其他管理员操作
+          </span>
         </el-form-item>
         <el-form-item label="状态">
           <el-switch
             v-model="form.is_active"
+            :disabled="editingIsSelf"
             active-text="启用"
             inactive-text="停用"
             inline-prompt
           />
+          <span v-if="editingIsSelf" class="field-tip">
+            不能停用当前登录账号
+          </span>
         </el-form-item>
         <el-form-item label="重置密码">
           <el-input
@@ -265,9 +395,127 @@ onMounted(load);
         <el-button type="primary" :loading="saving" @click="submitEdit">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 用户详情抽屉 -->
+    <el-drawer v-model="drawerVisible" :title="detailTitle" size="560px">
+      <div v-loading="overviewLoading" class="drawer-body">
+        <template v-if="overview">
+          <section class="card detail-card">
+            <header class="card-head">
+              <span class="card-title">基本资料</span>
+            </header>
+            <div v-if="overview.is_admin || !overview.is_active" class="tag-row">
+              <el-tag v-if="overview.is_admin" type="warning" size="small" effect="light">
+                管理员
+              </el-tag>
+              <el-tag v-if="!overview.is_active" type="danger" size="small" effect="light">
+                已停用
+              </el-tag>
+            </div>
+            <div class="info-item">
+              <span class="info-label">账号</span>
+              <span class="info-value">{{ overview.username }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">昵称</span>
+              <span class="info-value">{{ overview.nickname || "未设置" }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">邮箱</span>
+              <span class="info-value">{{ overview.email || "未绑定" }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">注册时间</span>
+              <span class="info-value">{{ overview.created_at || "-" }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">最近活跃</span>
+              <span class="info-value">{{ overview.last_login_at || "从未登录" }}</span>
+            </div>
+          </section>
+
+          <section class="card detail-card">
+            <header class="card-head">
+              <span class="card-title">数据统计</span>
+            </header>
+            <div class="stat-row">
+              <div class="stat-box">
+                <div class="stat-num">{{ overview.competitor_count }}</div>
+                <div class="stat-name">竞品</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-num">{{ overview.event_count }}</div>
+                <div class="stat-name">情报</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-num">{{ overview.report_count }}</div>
+                <div class="stat-name">周报</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-num">{{ overview.crawl_log_count }}</div>
+                <div class="stat-name">抓取日志</div>
+              </div>
+            </div>
+            <div class="info-item">
+              <span class="info-label">抓取结果</span>
+              <span class="info-value">
+                成功 {{ overview.crawl_success_count }} / 失败 {{ overview.crawl_fail_count }}
+              </span>
+            </div>
+          </section>
+
+          <section v-if="overview.competitor_names.length" class="card detail-card">
+            <header class="card-head">
+              <span class="card-title">名下竞品</span>
+            </header>
+            <div class="tag-list">
+              <el-tag
+                v-for="name in overview.competitor_names"
+                :key="name"
+                size="small"
+                effect="plain"
+              >
+                {{ name }}
+              </el-tag>
+            </div>
+          </section>
+
+          <section v-if="overview.report_titles.length" class="card detail-card">
+            <header class="card-head">
+              <span class="card-title">名下报告</span>
+            </header>
+            <ul class="text-list">
+              <li v-for="title in overview.report_titles" :key="title">{{ title }}</li>
+            </ul>
+          </section>
+
+          <section v-if="overview.event_trend.length" class="card detail-card">
+            <header class="card-head">
+              <span class="card-title">近 30 天情报趋势</span>
+              <span class="card-hint">悬停查看每日条数</span>
+            </header>
+            <div class="trend-bars">
+              <div
+                v-for="d in overview.event_trend"
+                :key="d.date_iso"
+                class="trend-bar"
+                :title="`${d.date}：${d.count} 条`"
+              >
+                <div class="trend-bar-fill" :style="{ height: barHeight(d.count) }" />
+              </div>
+            </div>
+          </section>
+        </template>
+      </div>
+    </el-drawer>
   </div>
 </template>
 <style scoped>
+.card {
+  background-color: var(--app-color-white);
+  border-radius: 1vmax;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+}
 .user-manage {
   height: 100%;
   overflow-y: auto;
@@ -314,17 +562,143 @@ onMounted(load);
   gap: 1vh;
 }
 
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2vw;
+}
+.card-title {
+  font-size: 1.1vmax;
+  font-weight: bold;
+}
+.card-hint {
+  font-size: 0.9vmax;
+  color: var(--app-color-gray);
+}
+
 .username {
   font-weight: 600;
   margin-right: 0.5vw;
+}
+/* 账号与「当前登录」标签同一格展示：允许换行、标签不收缩 */
+.user-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5vw;
+  flex-wrap: wrap;
+  white-space: normal;
 }
 .muted {
   color: var(--app-color-gray);
 }
 
-.empty-hint {
-  text-align: center;
+/* 修改弹窗内「自己不可改角色/状态」的说明文字 */
+.field-tip {
+  display: block;
+  margin-top: 0.6vh;
+  font-size: 0.72vmax;
+  color: var(--app-color-warning);
+  line-height: 1.5;
+}
+
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 0.5vh;
+}
+
+/* 抽屉 */
+.drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2vh;
+}
+.detail-card {
+  padding: 1.4vh 1vw;
+  display: flex;
+  flex-direction: column;
+  gap: 1vh;
+}
+.tag-row {
+  display: flex;
+  gap: 0.5vw;
+}
+.info-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2vw;
+  padding: 0.8vh 0.2vw;
+  border-bottom: 1px solid var(--app-color-gray-border, #f0f0f0);
+}
+.info-label {
   color: var(--app-color-gray);
-  padding: 4vh 0;
+  font-size: 1vmax;
+}
+.info-value {
+  font-size: 1vmax;
+  word-break: break-all;
+  text-align: right;
+}
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1vw;
+}
+.stat-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3vh;
+  padding: 1.2vh 0;
+  border-radius: 0.8vmax;
+  background-color: var(--app-color-blue-light-5);
+}
+.stat-num {
+  font-size: 1.5vmax;
+  font-weight: bold;
+  color: var(--app-color-blue);
+}
+.stat-name {
+  font-size: 0.85vmax;
+  color: var(--app-color-gray);
+}
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5vw;
+}
+.text-list {
+  margin: 0;
+  padding-left: 1.2vw;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4vh;
+  color: var(--app-text-color-regular);
+  font-size: 0.95vmax;
+}
+.trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 120px;
+}
+.trend-bar {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  cursor: default;
+}
+.trend-bar-fill {
+  width: 100%;
+  border-radius: 0.3vmax 0.3vmax 0 0;
+  background-color: var(--app-color-blue);
+  transition: opacity 0.15s;
+}
+.trend-bar:hover .trend-bar-fill {
+  opacity: 0.75;
 }
 </style>

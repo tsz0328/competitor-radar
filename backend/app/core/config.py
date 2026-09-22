@@ -127,7 +127,12 @@ class Settings(BaseSettings):
     smtp_username: str = ""
     smtp_password: str = ""
     smtp_sender: str = ""
-    # 收件人，多个用英文逗号分隔；留空则发给自己（SMTP_USERNAME）
+    # 界面保存的 SMTP 授权码加密密钥（Fernet）；留空回退 JWT_SECRET。
+    # ⚠️ 生产环境务必固定：换密钥后历史密文无法解密（会按明文失败处理）。
+    smtp_secret: str = ""
+    # 运维告警收件人：**仅**用于"调用方未指定收件人"的系统级通知，多个用英文逗号分隔。
+    # 留空 = 这类通知不发信、只落一条 warning（安全失败）；**不要填个人/管理员常用邮箱**，
+    # 历史上它正是"用户的竞品动态被投进管理员信箱"的通道。
     notify_recipients: str = ""
     # 通知里"查看详情"跳转地址（前端部署地址）；用于高优先级事件即时通知的链接
     frontend_base_url: str = "http://localhost:5173"

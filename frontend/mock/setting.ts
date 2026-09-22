@@ -20,6 +20,8 @@ function providerOut(p: any) {
     apiKeyPreview: p.hasApiKey ? previewOf(p.apiKey) : "",
     isActive: !!p.isActive,
     modelsCount: (p.models || []).length,
+    testStatus: p.testStatus || "none",
+    lastTestAt: p.lastTestAt || null,
   };
 }
 
@@ -131,6 +133,10 @@ export default [
       const id = body?.providerId ? Number(body.providerId) : null;
       const prov = id != null ? findOwnedProvider(d, u.id, id) : activeProvider(d, u.id);
       const model = body?.model || prov?.model || "gpt-4o";
+      if (prov) {
+        prov.testStatus = "ok";
+        prov.lastTestAt = new Date().toISOString();
+      }
       return ok({ ok: true, message: "连接成功，模型可用", model, latencyMs: 120 });
     },
   },
@@ -198,7 +204,20 @@ export default [
     response: ({ headers }: any) => {
       const u = requireUser(headers);
       if (!u) return err(40100, "未登录或登录已过期");
-      return ok({ ok: true, models: ["deepseek-chat", "deepseek-reasoner", "gpt-4o-mini", "gpt-4o"], message: "已获取模型列表" });
+      // 与后端一致：只回对话补全模型，文生图/嵌入/语音等非对话模型放 filteredModels 供前端提示
+      return ok({
+        ok: true,
+        models: [
+          "deepseek-chat",
+          "deepseek-reasoner",
+          "gpt-4o-mini",
+          "gpt-4o",
+          "qwen-max",
+          "claude-3-5-sonnet",
+        ],
+        filteredModels: ["dall-e-3", "gpt-image-1", "text-embedding-3-large", "whisper-1", "tts-1"],
+        message: "已获取 6 个对话模型，已过滤 5 个非对话模型",
+      });
     },
   },
   {

@@ -1,0 +1,105 @@
+﻿ M .codebuddy/preview/login-illustration-preview.html
+ M backend/.env.example
+ M backend/app/api/admin.py
+ M backend/app/api/auth.py
+ M backend/app/api/competitors.py
+ M backend/app/api/deps.py
+ M backend/app/api/events.py
+ M backend/app/api/notifications.py
+ M backend/app/api/reports.py
+ M backend/app/api/share.py
+ M backend/app/api/snapshots.py
+ M backend/app/api/trends.py
+ M backend/app/api/users.py
+ M backend/app/core/config.py
+ M backend/app/core/exceptions.py
+ M backend/app/core/http_errors.py
+ M backend/app/core/source_registry.py
+ M backend/app/core/validators.py
+ M backend/app/main.py
+ M backend/app/models/__init__.py
+ M backend/app/models/llm_provider.py
+ M backend/app/models/user.py
+ M backend/app/schemas/competitor.py
+ M backend/app/schemas/report.py
+ M backend/app/schemas/setting.py
+ M backend/app/schemas/snapshot.py
+ M backend/app/services/analyzer.py
+ M backend/app/services/browser.py
+ M backend/app/services/crawler.py
+ M backend/app/services/email_code.py
+ M backend/app/services/favicon.py
+ M backend/app/services/icon_library.py
+ M backend/app/services/notifier.py
+ M backend/app/services/report.py
+ M backend/app/services/settings.py
+ M backend/app/services/suggester.py
+ M backend/app/services/system_settings.py
+ M backend/tests/conftest.py
+ M backend/tests/test_icon_library.py
+ M backend/tests/test_logo_resolution.py
+ M backend/tests/test_remediation.py
+ M frontend/mock/competitor.ts
+ M frontend/mock/db.ts
+ M frontend/mock/notification.ts
+ M frontend/mock/setting.ts
+ M frontend/src/api/admin.ts
+ M frontend/src/api/competitor.ts
+ M frontend/src/api/notification.ts
+ M frontend/src/api/report.ts
+ M frontend/src/api/request.ts
+ M frontend/src/api/setting.ts
+ M frontend/src/components/CompetitorFormDialog.spec.ts
+ M frontend/src/components/CompetitorFormDialog.vue
+ M frontend/src/components/EventDetailDrawer.spec.ts
+ M frontend/src/components/EventDetailDrawer.vue
+ D frontend/src/components/Icons/Radar.vue
+ M frontend/src/components/Icons/index.ts
+ M frontend/src/components/Logo.vue
+ M frontend/src/data/navMenu.ts
+ M frontend/src/layouts/AppLayout/AppLayout.vue
+ M frontend/src/layouts/AppLayout/SideNav.vue
+ M frontend/src/layouts/AppLayout/TopBar.vue
+ M frontend/src/router/index.ts
+ M frontend/src/stores/competitor.ts
+ M frontend/src/stores/report.ts
+ M frontend/src/types/competitor.ts
+ M frontend/src/types/report.ts
+ M frontend/src/views/StandAlone/Login/Login.vue
+ M frontend/src/views/app/AdminCompetitors.vue
+ M frontend/src/views/app/Competitor.vue
+ M frontend/src/views/app/CrawlLog.vue
+ M frontend/src/views/app/Dashboard.vue
+ M frontend/src/views/app/Event.vue
+ M frontend/src/views/app/Report.vue
+ M frontend/src/views/app/Setting.vue
+ M frontend/src/views/app/Trash.vue
+ M frontend/src/views/app/UserManage.vue
+ M frontend/vite.config.ts
+?? .codebuddy/competitor_recommendations.md
+?? .codebuddy/dev.db.bak.linearfix
+?? .codebuddy/preview/login-illustration-compare.html
+?? .gitstatus.txt
+?? .trae/documents/admin-console-refactor-plan.md
+?? backend/app/api/announcements.py
+?? backend/app/models/admin_audit.py
+?? backend/app/models/announcement.py
+?? backend/app/services/admin_stats.py
+?? backend/dev.db.bak-20260921-122756-before-clear-biz
+?? backend/migrations/versions/20260921_1200_admin_enhancements.py
+?? backend/migrations/versions/20260921_1300_merge_heads.py
+?? backend/migrations/versions/20260921_1400_add_provider_test_status.py
+?? backend/tests/test_admin.py
+?? backend/tests/test_admin_enhancements.py
+?? backend/tests/test_suggester.py
+?? frontend/.tsc-check.txt
+?? frontend/.tsc_out.txt
+?? frontend/.vitest_junit.xml
+?? frontend/src/assets/logo.svg
+?? frontend/src/router/guard.spec.ts
+?? frontend/src/router/guard.ts
+?? frontend/src/views/app/AdminAuditLog.vue
+?? frontend/src/views/app/AdminData.vue
+?? frontend/src/views/app/AdminOverview.vue
+?? frontend/src/views/app/AdminSettings.vue
+?? frontend/src/views/app/NotificationCenter.vue

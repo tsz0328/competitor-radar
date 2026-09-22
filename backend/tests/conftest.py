@@ -8,6 +8,7 @@ import os
 # 必须在 import app 之前：避免任何启动建表逻辑误连真实库
 os.environ.setdefault("DB_AUTO_CREATE", "false")
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
@@ -21,6 +22,13 @@ import app.models  # noqa: F401  确保全部模型注册到 Base.metadata
 from app.core.database import get_db
 from app.main import app
 from app.models.base import Base
+from app.services import admin_stats
+
+
+@pytest.fixture(autouse=True)
+def _reset_admin_stats_cache():
+    """总览聚合走模块级内存缓存（5 分钟 TTL），测试间必须失效，否则互相污染。"""
+    admin_stats.invalidate_overview_cache()
 
 
 @pytest_asyncio.fixture

@@ -216,7 +216,7 @@ onMounted(async () => {
             <span class="page-type">{{ typeLabel(row.sourceType) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="触发" width="80">
+        <el-table-column label="触发" width="90">
           <template #default="{ row }">
             <span class="trigger" :class="`trigger--${row.trigger}`">
               {{ triggerLabel(row.trigger) }}
@@ -343,6 +343,7 @@ onMounted(async () => {
   font-size: 0.9vmax;
   padding: 0 0.4vw;
   border-radius: 0.3vmax;
+  white-space: nowrap; /* 防「定时」等短词被按字拆行 */
 }
 .trigger--manual {
   color: var(--app-color-blue);

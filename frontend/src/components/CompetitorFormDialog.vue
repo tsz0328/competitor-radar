@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, h, reactive, ref, watch } from "vue";
-import { ElMessage, ElMessageBox, ElNotification, type FormInstance, type FormRules } from "element-plus";
-import { Check, Delete, InfoFilled, Link, Loading, MagicStick, WarningFilled } from "@element-plus/icons-vue";
+import { ElInput, ElMessage, ElMessageBox, ElNotification, type FormInstance, type FormRules } from "element-plus";
+import { Check, CircleCheckFilled, CircleCloseFilled, Delete, InfoFilled, Link, Loading, MagicStick, WarningFilled } from "@element-plus/icons-vue";
 import { storeToRefs } from "pinia";
 import { useCompetitorStore } from "@/stores/competitor";
 import { usePreferencesStore } from "@/stores/preferences";
@@ -18,6 +18,10 @@ const props = defineProps<{
   modelValue: boolean;
   /** 传入则进入编辑模式，否则为新增 */
   competitor?: CompetitorItem | null;
+  /** 所属弹窗会话 id（多个后台会话并存时用于同步会话状态） */
+  sessionId?: number;
+  /** 在后台会话列表中的序号（-1=非后台），用于悬浮窗纵向堆叠不重叠 */
+  widgetIndex?: number;
 }>();
 const emit = defineEmits<{ (e: "update:modelValue", value: boolean): void }>();
 
@@ -53,9 +57,72 @@ function cancelRun() {
   runAbort?.abort();
   runAbort = null;
   suggesting.value = false;
+  smartFilling.value = false; // 取消/关闭时同步复位智能填充按钮的转圈
   manualChecking.value = false;
   ElMessage.info("已取消");
 }
+
+// ===== 后台进行：检测/寻找等长任务可隐藏弹窗继续跑，右下角悬浮窗点开恢复 =====
+/** true = 弹窗已隐藏但任务仍在后台运行 */
+const background = ref(false);
+/** true = 后台任务刚结束（悬浮窗短暂显示「已完成」，随后自动收起） */
+const bgDone = ref(false);
+let bgTimer: ReturnType<typeof setTimeout> | null = null;
+/** 标记「从悬浮窗恢复」：恢复时表单/任务状态都还在，跳过重新初始化 */
+const reopenFromBg = ref(false);
+
+/** 更新本地后台标记，并同步到 store 会话（AppLayout 据此决定关闭时保留还是销毁会话） */
+function setBackground(bg: boolean) {
+  background.value = bg;
+  if (props.sessionId != null) store.setFormBackground(props.sessionId, bg);
+}
+
+/** 转入后台：只隐藏弹窗，不中止在途任务（watch(visible) 会据此跳过 abort） */
+function goBackground() {
+  if (!busy.value) return;
+  setBackground(true);
+  visible.value = false;
+  ElMessage.info("已转入后台进行，可点击右下角悬浮窗查看进度");
+}
+
+/** 点击右下角悬浮窗：恢复弹窗，保留当前表单与运行状态 */
+function reopenFromBackground() {
+  if (bgTimer) {
+    clearTimeout(bgTimer);
+    bgTimer = null;
+  }
+  reopenFromBg.value = true;
+  bgDone.value = false;
+  setBackground(false);
+  visible.value = true;
+}
+
+/** 悬浮窗文案：运行中显示进度，结束后提示查看结果 */
+const backgroundText = computed(() => {
+  if (busy.value) {
+    const p = checkProgress.total ? `（${checkProgress.done}/${checkProgress.total}）` : "";
+    return `后台运行中${p}，点击查看`;
+  }
+  return "检测已完成，点击查看结果";
+});
+
+/** 悬浮窗纵向位置：多个后台会话按序向上堆叠，互不重叠 */
+const widgetStyle = computed(() => {
+  const idx = props.widgetIndex ?? -1;
+  return idx >= 0 ? { bottom: `calc(4vh + ${idx * 7}vh)` } : {};
+});
+
+// 后台任务结束时：悬浮窗短暂显示「已完成」，一段时间后自动收起（销毁会话）
+watch(busy, (b) => {
+  if (!b && background.value) {
+    bgDone.value = true;
+    bgTimer = setTimeout(() => {
+      bgDone.value = false;
+      setBackground(false);
+      if (props.sessionId != null) store.closeForm(props.sessionId);
+    }, 6000);
+  }
+});
 
 // 网址可达性校验：每个监控页（含官网）的检测状态与结论，用于行内提示
 type CheckState = "" | "checking" | "ok" | "fail";
@@ -132,7 +199,18 @@ const FALLBACK_TYPES: SourceTypeOption[] = [
   { type: "status", label: "服务状态页", render: "http", defaultIntervalMinutes: 60, llmHint: "" },
   { type: "rss", label: "RSS 订阅", render: "http", defaultIntervalMinutes: 60, llmHint: "" },
   { type: "app_store", label: "应用商店页", render: "browser", defaultIntervalMinutes: 1440, llmHint: "" },
+  { type: "custom", label: "自定义页面", render: "browser", defaultIntervalMinutes: 1440, llmHint: "" },
 ];
+
+// 自定义页面：不受后端注册表影响，前端始终提供
+const CUSTOM_TYPE: SourceType = "custom";
+const CUSTOM_OPTION: SourceTypeOption = {
+  type: CUSTOM_TYPE,
+  label: "自定义页面",
+  render: "browser",
+  defaultIntervalMinutes: 1440,
+  llmHint: "",
+};
 
 // 常见页面的路径猜测，勾选后自动预填，用户可改
 const PATH_GUESS: Record<string, string> = {
@@ -158,6 +236,8 @@ const typeOptions = ref<SourceTypeOption[]>([]);
 const selected = ref<SourceType[]>([]);
 const urls = reactive<Record<string, string>>({});
 const intervals = reactive<Record<string, number>>({});
+// 自定义页面的展示名（用户填的，如「GitHub 仓库」）；其余类型用注册表中文名
+const customNames = reactive<Record<string, string>>({});
 
 const rules: FormRules = {
   name: [{ required: true, message: "请输入竞品名称", trigger: "blur" }],
@@ -226,15 +306,20 @@ function isSelected(type: SourceType): boolean {
   return selected.value.includes(type);
 }
 
-function removeType(type: SourceType) {
-  // 暂存被取消勾选的页面（含网址与检测状态），重新勾选时原样恢复、保留“通过”
-  removedCache[type] = {
-    url: urls[type] ?? "",
-    interval: intervals[type] ?? 0,
-    state: checkState[type] ?? "",
-    msg: checkMsg[type] ?? "",
-    manual: !!manualUrlEdited[type],
-  };
+function removeType(type: SourceType, preserve = true) {
+  if (preserve) {
+    // 取消勾选：暂存被取消的页面（含网址与检测状态），重新勾选时原样恢复、保留"通过"
+    removedCache[type] = {
+      url: urls[type] ?? "",
+      interval: intervals[type] ?? 0,
+      state: checkState[type] ?? "",
+      msg: checkMsg[type] ?? "",
+      manual: !!manualUrlEdited[type],
+    };
+  } else {
+    // 点击行内「删除」按钮：不保留已填网址（即使已通过），重新勾选时回到默认/空白状态
+    delete removedCache[type];
+  }
   selected.value = selected.value.filter((t) => t !== type);
   delete urls[type];
   delete intervals[type];
@@ -245,7 +330,7 @@ function removeType(type: SourceType) {
 
 function toggleType(opt: SourceTypeOption) {
   if (isSelected(opt.type)) {
-    removeType(opt.type);
+    removeType(opt.type, true); // 取消勾选：保留原样，重新勾选时恢复
     return;
   }
   selected.value = [...selected.value, opt.type];
@@ -269,8 +354,8 @@ function toggleType(opt: SourceTypeOption) {
     }
     delete removedCache[opt.type];
   } else {
-    // 官网已填 → 按本地规则自动补；官网没填 → 保持空白（不擅自做 AI 找址）
-    urls[opt.type] = guessUrl(opt.type);
+    // 官网已填 → 按本地规则自动补（自定义页无规则，保持空白由用户填）；官网没填 → 保持空白（不擅自做 AI 找址）
+    urls[opt.type] = opt.type === CUSTOM_TYPE ? "" : guessUrl(opt.type);
     intervals[opt.type] = opt.defaultIntervalMinutes ?? 1440;
   }
 }
@@ -289,6 +374,7 @@ let lastSyncedOfficial = "";
 function syncUrlsWithOfficial() {
   selected.value.forEach((type) => {
     if (manualUrlEdited[type]) return; // 手动改过的页面保留，不随官网变动
+    if (type === CUSTOM_TYPE) return; // 自定义页无规则可猜，不随官网变动预填
     const next = guessUrl(type);
     if (urls[type] !== next) {
       // 仅当猜测地址真的变了才刷新并作废旧检测；地址没变则保留“通过”状态
@@ -353,8 +439,11 @@ async function autoDetectFill(force = false, useAi = true) {
       filled.push("官网地址");
     } else if (aiOfficial && aiOfficial !== currentOfficial) {
       // 已填官网与 AI 推断不同：先探一下现有的，不可达才改用 AI 的（避免覆盖正确的官网）
-      await checkOne(OFFICIAL_KEY, form.officialUrl, ac.signal);
-      if (isRunCancelled(token)) return;
+      // 已填官网刚检测为「不通过」时不必重复探测，直接改用 AI 推断的官网
+      if (checkState[OFFICIAL_KEY] !== "fail") {
+        await checkOne(OFFICIAL_KEY, form.officialUrl, ac.signal);
+        if (isRunCancelled(token)) return;
+      }
       if (checkState[OFFICIAL_KEY] === "fail" && !checkUnverified[OFFICIAL_KEY]) {
         form.officialUrl = aiOfficial;
         syncUrlsWithOfficial();
@@ -382,16 +471,19 @@ async function autoDetectFill(force = false, useAi = true) {
     notifyFails(remaining);
 
     if (filled.length) ElMessage.success(`已自动填入：${filled.join("、")}`);
+    // 官网/分类仍空：把后端给出的具体原因（如「常见域名均不可达」「缺可用 AI」）弹出来，
+    // 别让用户只看到笼统的「请手动填写」却不知道为什么
+    else if (!normalizeBaseUrl(form.officialUrl) && r.message) ElMessage.warning(r.message);
     else if (!remaining.length && r.message) ElMessage.info(r.message);
   } catch {
     if (isRunCancelled(token)) return;
-    if (force) ElMessage.error("智能检测填充失败，请稍后重试");
+    if (force) ElMessage.error("智能检测填充失败：网络或服务异常，请稍后重试，或手动填写官网与页面地址");
   } finally {
     if (runAbort === ac) runAbort = null;
-    if (!isRunCancelled(token)) {
-      suggesting.value = false;
-      smartFilling.value = false;
-    }
+    // 复位按钮状态不依赖 isRunCancelled：用户取消/关闭弹窗时也必须复原转圈，
+    // 否则下次打开弹窗按钮会一直显示加载中
+    suggesting.value = false;
+    smartFilling.value = false;
   }
 }
 
@@ -436,14 +528,18 @@ async function detectAndFindPages(
   token: number,
   signal?: AbortSignal,
 ): Promise<[number, string[]]> {
-  await verifyUrls(() => isRunCancelled(token), signal);
+  // 已「不通过」的网址不重复检测（用户刚检测过），直接进入寻找流程；
+  // 只补检「未检测」的已填网址
+  await verifyUrls(() => isRunCancelled(token), signal, true);
   if (isRunCancelled(token)) return [0, []];
 
   // 对"未通过"或"空白未填"的已勾选监控页，再去自动寻找更可能正确的地址：
   //  - "检测网址"那一遍已把【有值但未通过】的标成 fail；
   //  - 【空白未填】的没有值可测，停留未检测态，同样需要 AI 来补。两者都纳入寻找。
   // 逐页寻找（每次只扫该类型），以便像"重新寻找"一样展示 x/y 进度与行内结果。
-  const needFind = selected.value.filter((t) => checkState[t] !== "ok");
+  const needFind = selected.value.filter(
+    (t) => checkState[t] !== "ok" && t !== CUSTOM_TYPE, // 自定义页无 AI 规则，不参与自动寻找
+  );
   if (!needFind.length) return [0, collectRemainingProblems()];
 
   const allTypes = typeOptions.value.map((o) => o.type);
@@ -557,7 +653,7 @@ async function refindPages(types: SourceType[]) {
     }
   } catch {
     if (isRunCancelled(token)) return;
-    ElMessage.error("重新寻找失败，请稍后重试");
+    ElMessage.error("重新寻找失败：网络或服务异常，请稍后重试，或手动填写页面地址");
   } finally {
     refinding.value = false;
     refindingType.value = null;
@@ -611,6 +707,12 @@ function onNameBlur() {
   prefillByRule();
 }
 
+/** 官网地址输入框：回车时不触发任何检测/预填，只把焦点移过去 */
+const officialUrlRef = ref<InstanceType<typeof ElInput> | null>(null);
+function focusOfficialUrl() {
+  officialUrlRef.value?.focus();
+}
+
 async function loadTypeOptions() {
   if (typeOptions.value.length) return;
   try {
@@ -618,6 +720,10 @@ async function loadTypeOptions() {
     typeOptions.value = list.length ? list : FALLBACK_TYPES;
   } catch {
     typeOptions.value = FALLBACK_TYPES;
+  }
+  // 自定义页面由前端固定提供：后端注册表没有也要保证卡片存在
+  if (!typeOptions.value.some((o) => o.type === CUSTOM_TYPE)) {
+    typeOptions.value = [...typeOptions.value, CUSTOM_OPTION];
   }
 }
 
@@ -632,8 +738,14 @@ function resetForm() {
   Object.keys(checkMsg).forEach((key) => delete checkMsg[key]);
   Object.keys(checkUnverified).forEach((key) => delete checkUnverified[key]);
   Object.keys(checkRun).forEach((key) => delete checkRun[key]);
+  Object.keys(refindResult).forEach((key) => delete refindResult[key]);
   Object.keys(manualUrlEdited).forEach((key) => delete manualUrlEdited[key]);
   Object.keys(removedCache).forEach((key) => delete removedCache[key]);
+  Object.keys(customNames).forEach((key) => delete customNames[key]);
+  // 复位各操作按钮的转圈状态（防上次流程被取消后残留 loading）
+  suggesting.value = false;
+  smartFilling.value = false;
+  manualChecking.value = false;
   lastSyncedOfficial = "";
   // 注意：allowUnreachableOfficial 不清空——它是全局偏好，跨弹窗记忆
   runAbort?.abort();
@@ -651,7 +763,7 @@ function applyDefaults() {
   });
 }
 
-/** 编辑模式：用已有竞品及其监控源回填表单 */
+/** 编辑模式：用已有竞品及其监控源回填表单，并按抓取历史恢复检测状态 */
 function applyCompetitor(item: CompetitorItem) {
   form.name = item.name ?? "";
   form.officialUrl = item.domain ?? "";
@@ -661,8 +773,38 @@ function applyCompetitor(item: CompetitorItem) {
     selected.value.push(source.sourceType);
     urls[source.sourceType] = source.url;
     intervals[source.sourceType] = source.intervalMinutes;
-    manualUrlEdited[source.sourceType] = true; // 编辑回填的既有网址视为"已确认"，官网变动不覆盖
+    if (source.sourceType === CUSTOM_TYPE) customNames[source.sourceType] = source.name ?? "";
+    if (source.sourceType === "homepage") {
+      // 官网首页默认跟随官网地址（同源）：仅当它"被改到与官网不同"才视为手动编辑、
+      // 不再随官网变动同步；与官网同源时保持 manual=false，改官网地址会一起同步过来。
+      const hpExpected = normalizeBaseUrl(guessUrl("homepage")); // = 官网地址的 origin
+      manualUrlEdited.homepage = !!hpExpected && normalizeBaseUrl(source.url) !== hpExpected;
+    } else {
+      // 其余页面视作用户已确认的独立地址，官网变动不覆盖
+      manualUrlEdited[source.sourceType] = true;
+    }
+    // 恢复历史检测状态：上次抓取无错误 → 已通过（编辑/保存不再重复检测）；有错误 → 不通过并带原因
+    if (source.lastError) {
+      checkState[source.sourceType] = "fail";
+      checkMsg[source.sourceType] = source.lastError;
+    } else {
+      checkState[source.sourceType] = "ok";
+    }
   });
+  // 官网检测状态：官网首页与官网地址同址，用它的抓取结果恢复（避免保存时对已通过的官网重检）
+  const homepage = (item.sources ?? []).find(
+    (s) =>
+      s.sourceType === "homepage" &&
+      normalizeBaseUrl(s.url) === normalizeBaseUrl(form.officialUrl),
+  );
+  if (homepage) {
+    if (homepage.lastError) {
+      checkState[OFFICIAL_KEY] = "fail";
+      checkMsg[OFFICIAL_KEY] = homepage.lastError;
+    } else {
+      checkState[OFFICIAL_KEY] = "ok";
+    }
+  }
 }
 
 async function initialize() {
@@ -682,12 +824,19 @@ watch(
   visible,
   (open) => {
     if (open) {
+      // 从后台悬浮窗恢复：表单与任务状态都还在，不做重置
+      if (reopenFromBg.value) {
+        reopenFromBg.value = false;
+        return;
+      }
+      // 新会话实例：初始化本会话表单（每个会话独立，不影响其他后台会话）
       initialize();
-    } else {
+    } else if (!background.value) {
       // 关闭弹窗：中止在途请求，避免请求回来后改写已重置的状态
       runAbort?.abort();
       runAbort = null;
     }
+    // 后台进行（background=true）时关闭：仅隐藏弹窗，任务继续
   },
   { immediate: true },
 );
@@ -699,6 +848,8 @@ function buildPayload(skipTypes: Set<string> = new Set()): CompetitorCreatePaylo
       sourceType: type,
       url: effectiveUrl(type) || undefined,
       intervalMinutes: intervals[type],
+      // 自定义页面带用户填的名称，其余类型后端用注册表中文名兜底
+      name: type === CUSTOM_TYPE ? (customNames[type] || "").trim() || undefined : undefined,
     }));
   return {
     name: form.name.trim(),
@@ -735,15 +886,19 @@ function toHtmlList(lines: string[]): string {
 
 /** 保存前批量校验网址可达性，返回逐项结果；同时把行内状态点亮
  *  - 已经检测通过（打勾）的页面不重复检查，保留其状态
+ *  - skipFail：智能填充场景为 true，已「不通过」的网址也不重复检测，直接进入寻找流程
  *  - 同一网址（如「官网首页」与「官网地址」通常同址）只探测一次
  */
 async function verifyUrls(
   isCancelled: () => boolean = () => false,
   signal?: AbortSignal,
+  skipFail = false,
 ): Promise<
   { key: string; label: string; url: string; ok: boolean; message: string; unverified: boolean }[]
 > {
-  const targets = buildVerifyTargets().filter((t) => checkState[t.key] !== "ok");
+  const targets = buildVerifyTargets().filter(
+    (t) => !(checkState[t.key] === "ok" || (skipFail && checkState[t.key] === "fail")),
+  );
   targets.forEach((t) => {
     checkRun[t.key] = (checkRun[t.key] ?? 0) + 1; // 作废可能存在的在途单字段检测
     checkState[t.key] = "checking";
@@ -819,6 +974,17 @@ async function checkOne(key: string, raw: string, signal?: AbortSignal) {
   }
   if (checkRun[key] !== myToken) return; // 期间该字段被编辑/清除 → 丢弃旧结果
   applyCheckResult(key, url, ok, message, unverified);
+}
+
+/** 检测失败原因是否属于「页面不存在（404）」：用红色圆叉图标区分于连接失败/超时等 */
+function isNotFoundError(msg: string): boolean {
+  return (msg || "").includes("404");
+}
+
+/** 打开输入框里的网址：新窗口访问（自动补全协议，无值不跳转） */
+function openUrl(url: string) {
+  const target = normalizeBaseUrl(url);
+  if (target) window.open(target, "_blank", "noopener");
 }
 
 /** 写入检测结论，并把同一网址的其它行（含官网同址）一起点亮，保持状态一致 */
@@ -905,7 +1071,7 @@ async function runManualCheck() {
   runAbort = ac;
   manualChecking.value = true;
   try {
-    const results = await verifyUrls(() => isRunCancelled(token), ac.signal); // 内部会自动跳过已通过的
+    const results = await verifyUrls(() => isRunCancelled(token), ac.signal); // 手动检测跳过已通过的，只检未验证/不通过的
     if (isRunCancelled(token)) return;
     const fails = collectFailLines(results);
     const unverified = collectUnverifiedLines(results);
@@ -928,7 +1094,8 @@ async function runManualCheck() {
     }
   } finally {
     if (runAbort === ac) runAbort = null;
-    if (!isRunCancelled(token)) manualChecking.value = false;
+    // 复位不依赖 isRunCancelled：取消/关闭弹窗时也要复原转圈
+    manualChecking.value = false;
   }
 }
 
@@ -978,11 +1145,13 @@ async function handleSubmit() {
       return;
     }
 
-    // 校验可达性（跳过已通过）：
+    // 校验可达性（跳过已通过与已不通过）：
+    //  - 已「不通过」的网址不重复检测——直接用现有结论走下方拦截/移除流程；
+    //  - 只补检「未检测」的已填网址；
     //  - 官网地址"确认不可达" → 硬拦截（关键）；
     //  - 可选监控页"确认不可达" → 新建时跳过该页、编辑时保留原配置，均不阻断；
     //  - "未能校验(请求失败)" → 只提示不阻断。
-    const results = await verifyUrls();
+    const results = await verifyUrls(() => false, undefined, true);
     const officialBad = checkState[OFFICIAL_KEY] === "fail" && !checkUnverified[OFFICIAL_KEY];
     if (officialBad && !allowUnreachableOfficial.value) {
       ElMessage.warning(
@@ -1048,7 +1217,7 @@ async function handleSubmit() {
     }
     visible.value = false;
   } catch {
-    ElMessage.error("保存失败，请稍后重试");
+    ElMessage.error("保存失败：网络或服务异常，请稍后重试");
   } finally {
     submitting.value = false;
   }
@@ -1073,7 +1242,7 @@ const footerTip = computed(() => {
   <el-dialog
     v-model="visible"
     :title="isEdit ? '编辑竞品' : '新增竞品'"
-    width="min(720px, 92vw)"
+    width="min(980px, 96vw)"
     :close-on-click-modal="false"
     :close-on-press-escape="!locked"
     :show-close="!locked"
@@ -1098,7 +1267,7 @@ const footerTip = computed(() => {
               clearable
               :disabled="locked"
               @blur="onNameBlur"
-              @keyup.enter="autoDetectFill(true)"
+              @keyup.enter="focusOfficialUrl"
             >
               <template #append>
                 <el-button
@@ -1116,9 +1285,11 @@ const footerTip = computed(() => {
           </el-form-item>
           <el-form-item label="官网地址" prop="officialUrl" class="flex-1">
             <el-input
+              ref="officialUrlRef"
               v-model="form.officialUrl"
               placeholder="如 https://notion.so"
               clearable
+              :title="form.officialUrl || undefined"
               :prefix-icon="Link"
               :disabled="locked"
               @input="clearCheck(OFFICIAL_KEY)"
@@ -1129,10 +1300,18 @@ const footerTip = computed(() => {
                   <el-icon color="var(--el-color-info)"><InfoFilled /></el-icon>
                 </el-tooltip>
                 <el-tooltip v-else-if="checkState[OFFICIAL_KEY] === 'fail'" :content="checkMsg[OFFICIAL_KEY]" placement="top">
-                  <el-icon color="var(--el-color-warning)"><WarningFilled /></el-icon>
+                  <el-icon v-if="isNotFoundError(checkMsg[OFFICIAL_KEY])" color="var(--el-color-danger)"><CircleCloseFilled /></el-icon>
+                  <el-icon v-else color="var(--el-color-warning)"><WarningFilled /></el-icon>
                 </el-tooltip>
                 <el-icon v-else-if="checkState[OFFICIAL_KEY] === 'ok'" color="var(--el-color-success)"><Check /></el-icon>
                 <el-icon v-else-if="checkState[OFFICIAL_KEY] === 'checking'" class="spin"><Loading /></el-icon>
+                <el-icon
+                  v-if="normalizeBaseUrl(form.officialUrl)"
+                  class="url-link"
+                  :class="{ active: checkState[OFFICIAL_KEY] === 'ok' }"
+                  title="打开该网址"
+                  @click.stop="openUrl(form.officialUrl)"
+                ><Link /></el-icon>
               </template>
             </el-input>
             <div
@@ -1209,13 +1388,24 @@ const footerTip = computed(() => {
 
       <div v-if="selected.length" class="source-list">
         <div v-for="type in selected" :key="type" class="source-row">
-          <span class="source-name">{{ labelOf(type) }}</span>
+          <input
+            v-if="type === CUSTOM_TYPE"
+            v-model="customNames[type]"
+            class="source-custom-name"
+            type="text"
+            maxlength="100"
+            placeholder="自定义页面"
+            title="页面名称，如 GitHub 仓库"
+            :disabled="locked"
+          />
+          <span v-else class="source-name">{{ labelOf(type) }}</span>
           <el-input
             v-model="urls[type]"
             size="small"
             placeholder="页面地址"
             class="source-url"
             :disabled="locked"
+            :title="urls[type] || undefined"
             @input="onPageUrlInput(type)"
             @blur="checkOne(type, urls[type])"
           >
@@ -1229,14 +1419,23 @@ const footerTip = computed(() => {
                 <el-icon color="var(--el-color-info)"><InfoFilled /></el-icon>
               </el-tooltip>
               <el-tooltip v-else-if="checkState[type] === 'fail'" :content="checkMsg[type]" placement="top">
-                <el-icon color="var(--el-color-warning)"><WarningFilled /></el-icon>
+                <span class="re-inline">
+                  <el-icon v-if="isNotFoundError(checkMsg[type])" color="var(--el-color-danger)"><CircleCloseFilled /></el-icon>
+                  <el-icon v-else color="var(--el-color-warning)"><WarningFilled /></el-icon>
+                  <em v-if="refindResult[type] === 'miss'" class="re-short">未找到</em>
+                </span>
               </el-tooltip>
               <el-icon v-else-if="checkState[type] === 'ok'" color="var(--el-color-success)"><Check /></el-icon>
               <el-icon v-else-if="checkState[type] === 'checking'" class="spin"><Loading /></el-icon>
+              <el-icon
+                v-if="effectiveUrl(type)"
+                class="url-link"
+                :class="{ active: checkState[type] === 'ok' }"
+                title="打开该网址"
+                @click.stop="openUrl(effectiveUrl(type))"
+              ><Link /></el-icon>
             </template>
           </el-input>
-          <span v-if="refindResult[type] === 'found'" class="re-hint ok">已找到</span>
-          <span v-else-if="refindResult[type] === 'miss'" class="re-hint miss">未找到，请手动填写</span>
           <span class="row-action">
             <el-button
               v-if="refindingType === type"
@@ -1254,7 +1453,7 @@ const footerTip = computed(() => {
               @click="checkOne(type, urls[type])"
             >重试</el-button>
             <el-button
-              v-else-if="checkState[type] === 'fail'"
+              v-else-if="checkState[type] === 'fail' && type !== CUSTOM_TYPE"
               link
               type="primary"
               size="small"
@@ -1275,7 +1474,7 @@ const footerTip = computed(() => {
             type="danger"
             :icon="Delete"
             :disabled="locked"
-            @click="removeType(type)"
+            @click="removeType(type, false)"
           />
         </div>
       </div>
@@ -1291,6 +1490,7 @@ const footerTip = computed(() => {
         <div class="footer-actions">
           <template v-if="busy">
             <el-button @click="cancelRun">取消</el-button>
+            <el-button type="primary" @click="goBackground">后台进行</el-button>
           </template>
           <template v-else>
             <el-button :disabled="locked" @click="visible = false">取消</el-button>
@@ -1304,6 +1504,19 @@ const footerTip = computed(() => {
       </div>
     </template>
   </el-dialog>
+
+  <!-- 后台进行悬浮窗：弹窗已隐藏且任务运行中/刚完成时，固定在右下角，点击恢复弹窗 -->
+  <div
+    v-if="background && (busy || bgDone)"
+    class="bg-widget"
+    :style="widgetStyle"
+    title="点击恢复弹窗"
+    @click="reopenFromBackground"
+  >
+    <el-icon v-if="busy" class="spin"><Loading /></el-icon>
+    <el-icon v-else><CircleCheckFilled /></el-icon>
+    <span>{{ backgroundText }}</span>
+  </div>
 </template>
 
 <style scoped>
@@ -1429,15 +1642,34 @@ const footerTip = computed(() => {
   color: var(--app-text-color-placeholder);
   white-space: nowrap;
 }
-.re-hint {
+.re-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15em;
+}
+.re-short {
+  font-style: normal;
   font-size: 0.72vmax;
-  white-space: nowrap;
-}
-.re-hint.ok {
-  color: var(--el-color-success);
-}
-.re-hint.miss {
   color: var(--el-color-warning);
+}
+/* URL 输入框尾部的图标：状态图标（对勾/警告/加载）+「打开网址」链接图标。
+   两者默认都是 1em（≈输入框自身 14px 字号）且紧贴在一起，显得又小又挤；
+   放大到 1.3em、并留 0.45em 间距——与行内文字比例协调，点链接也更好点。
+   官网地址、监控网址两处输入框共用这一条（本组件内只有它们用了 #suffix）。 */
+:deep(.el-input__suffix-inner) {
+  gap: 0.45em;
+  font-size: 1.3em;
+}
+.url-link {
+  cursor: pointer;
+  color: var(--app-text-color-placeholder);
+  transition: color 0.2s;
+}
+.url-link:hover {
+  color: var(--el-color-primary);
+}
+.url-link.active {
+  color: var(--el-color-primary);
 }
 /* 行内操作按钮的固定槽位：无论是否显示按钮，行都对齐 */
 .row-action {
@@ -1476,17 +1708,37 @@ const footerTip = computed(() => {
   border-radius: 0.8vmax;
 }
 .source-name {
-  width: 6vw;
+  width: 6.5em; /* 容下最长标签（应用商店页/服务状态页 5 字）+ 自定义页可编辑框的内边距，随字号缩放不会截断 */
   flex-shrink: 0;
   font-size: 0.88vmax;
   color: var(--app-text-color-regular);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.source-custom-name {
+  width: 6.5em; /* 必须与 .source-name 同宽：两者是 URL 输入框前的同一位 flex 项，不同宽就会造成「框框错位」 */
+  flex-shrink: 0;
+  box-sizing: border-box;
+  font-size: 0.88vmax;
+  color: var(--app-text-color-regular);
+  background: transparent;
+  border: 1px dashed var(--el-border-color);
+  border-radius: 0.3vmax;
+  padding: 0.2vmax 0.3vmax;
+  outline: none;
+  min-width: 0;
+}
+.source-custom-name:focus {
+  border-color: var(--el-color-primary);
+  border-style: solid;
 }
 .source-url {
   flex: 1;
   min-width: 0;
 }
 .source-interval {
-  width: 7vw;
+  width: 6.5vw;
   flex-shrink: 0;
 }
 .source-empty {
@@ -1518,6 +1770,7 @@ const footerTip = computed(() => {
 .footer-actions {
   display: flex;
   align-items: center;
+  gap: 0.6vw;
 }
 .spin {
   animation: url-check-spin 1s linear infinite;
@@ -1529,5 +1782,33 @@ const footerTip = computed(() => {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* 后台进行悬浮窗：固定右下角，任务期间常驻，点击恢复弹窗 */
+.bg-widget {
+  position: fixed;
+  right: 2vw;
+  bottom: 4vh;
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  gap: 0.5vw;
+  padding: 1vh 1.2vw;
+  border-radius: 2vmax;
+  background: var(--app-color-white, #fff);
+  border: 1px solid var(--app-color-blue-light-3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  font-size: 0.95vmax;
+  color: var(--app-color-blue);
+  max-width: 46vw;
+}
+.bg-widget span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bg-widget:hover {
+  border-color: var(--app-color-blue);
 }
 </style>

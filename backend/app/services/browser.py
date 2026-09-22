@@ -82,7 +82,10 @@ def _diagnose(exc: BaseException) -> str:
             "SelectorEventLoop）：请用 `python run_dev.py` 启动，或去掉 --reload、"
             "或加 `--loop asyncio:ProactorEventLoop`"
         )
-    return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
+    return (
+        f"浏览器渲染启动失败（{type(exc).__name__}）：{text or '原因未知'}"
+        "，请查看后端日志，或执行 playwright install chromium 后重启后端"
+    )
 
 
 def availability_note() -> str:
@@ -197,10 +200,16 @@ async def fetch_rendered(url: str) -> RenderResult:
             ok=True, url=url, http_status=status, html=html, elapsed_ms=_elapsed_ms(start)
         )
     except Exception as exc:  # noqa: BLE001 - 渲染失败不让主流程炸掉
+        kinds = {type(item).__name__ for item in _error_chain(exc)}
+        error = (
+            "页面加载超时：请确认该网址可正常访问，或适当调大抓取超时时间"
+            if "TimeoutError" in kinds
+            else _clean_error(f"渲染失败：{type(exc).__name__}: {exc}")
+        )
         return RenderResult(
             ok=False,
             url=url,
-            error=_clean_error(f"渲染失败：{type(exc).__name__}: {exc}"),
+            error=error,
             elapsed_ms=_elapsed_ms(start),
         )
     finally:

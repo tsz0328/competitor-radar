@@ -62,6 +62,21 @@ function mountDrawer() {
   });
 }
 
+/**
+ * 注意：抽屉的加载逻辑在 watch([modelValue, eventId]) 里，而 watch 默认不在挂载时触发，
+ * 必须"先关闭再打开"或改 eventId 才会真正跑 loadDetail。所以这两个用例都先挂载成关闭态，
+ * 再 setProps 打开，确保 loadDetail 被调用。
+ */
+async function mountThenOpen() {
+  const wrapper = mount(EventDetailDrawer, {
+    props: { modelValue: false, eventId: 1 },
+    global: { plugins: [ElementPlus], stubs: { teleport: true } },
+  });
+  await wrapper.setProps({ modelValue: true });
+  await flushPromises();
+  return wrapper;
+}
+
 beforeEach(() => {
   store.detailLoading = true;
   store.eventDetail = null;
@@ -89,5 +104,39 @@ describe("事件详情抽屉 - 等待态", () => {
     expect(wrapper.find(".el-skeleton").exists()).toBe(false);
     expect(wrapper.text()).toContain(DETAIL.title);
     expect(wrapper.text()).toContain("价格变化");
+  });
+
+  it("主详情加载成功时 emit loaded（携带 id），且抽屉保持打开", async () => {
+    store.detailLoading = false;
+    store.eventDetail = DETAIL;
+    store.loadEventDetail.mockResolvedValue(DETAIL);
+
+    const wrapper = await mountThenOpen();
+
+    expect(wrapper.emitted("loaded")).toBeTruthy();
+    expect(wrapper.emitted("loaded")![0]).toEqual([1]);
+    // 不应因加载成功而擅自关抽屉
+    expect(wrapper.emitted("update:modelValue")).toBeFalsy();
+  });
+
+  it("主详情加载失败时：不关闭抽屉、显示重试、点击重试再次请求", async () => {
+    store.detailLoading = false; // 真实 store 在 finally 里会置 false，mock 需手动模拟
+    store.loadEventDetail.mockRejectedValue(new Error("boom"));
+
+    const wrapper = await mountThenOpen();
+
+    // 失败不应 emit loaded（避免把来源通知误标已读）
+    expect(wrapper.emitted("loaded")).toBeFalsy();
+    // 抽屉保持打开
+    expect(wrapper.emitted("update:modelValue")).toBeFalsy();
+    // 错误态出现重试按钮
+    const retryBtn = wrapper.find(".detail-empty button");
+    expect(retryBtn.exists()).toBe(true);
+
+    await retryBtn.trigger("click");
+    await flushPromises();
+
+    // 重试应再发一次主详情请求（首次失败 1 次 + 重试 1 次）
+    expect(store.loadEventDetail).toHaveBeenCalledTimes(2);
   });
 });

@@ -228,6 +228,67 @@ async def test_delete_competitor_retains_events(
     assert ev_row.source_id == src.id  # 软删除保留监控源关联，恢复后历史数据自动连回
 
 
+async def test_hard_delete_purges_trend_and_event_reads(
+    client: object, session: object
+) -> None:
+    """彻底删除竞品：趋势分析(trend_insights)与事件已读标记(event_reads)一并清掉，不留孤儿。
+
+    此前趋势分析因无外键级联、又不在清理列表里，竞品硬删后成了指向已删竞品的孤儿记录。
+    """
+    from app.models.notification import EventRead
+    from app.models.trend import TrendInsight
+
+    u = await _make_user(session)
+    comp = await _make_competitor(session, u.id)
+    src = await _make_source(session, comp.id)
+    ev = await _make_event(session, comp.id, source_id=src.id)
+
+    trend = TrendInsight(
+        competitor_id=comp.id,
+        period_days=30,
+        direction="stable",
+        summary="近 30 天节奏平稳",
+        event_count=1,
+        high_impact_count=0,
+        coverage_days=30,
+    )
+    session.add(trend)
+    read = EventRead(user_id=u.id, event_id=ev.id, is_read=True)
+    session.add(read)
+    await session.commit()
+    await session.refresh(trend)
+    await session.refresh(read)
+
+    # 软删除 → 移入回收站：趋势/已读应保留，以支持回收站恢复后历史连回
+    r = await client.delete(f"/api/competitors/{comp.id}", headers=_auth(u))
+    assert r.status_code == 204, r.text
+    soft_trend = (
+        await session.execute(
+            select(TrendInsight).where(TrendInsight.id == trend.id)
+        )
+    ).scalar_one_or_none()
+    assert soft_trend is not None  # 软删保留趋势
+    soft_read = (
+        await session.execute(select(EventRead).where(EventRead.id == read.id))
+    ).scalar_one_or_none()
+    assert soft_read is not None  # 软删保留已读标记
+
+    # 从回收站彻底删除
+    r2 = await client.delete(f"/api/competitors/trash/{comp.id}", headers=_auth(u))
+    assert r2.status_code == 204, r2.text
+
+    gone_trend = (
+        await session.execute(
+            select(TrendInsight).where(TrendInsight.id == trend.id)
+        )
+    ).scalar_one_or_none()
+    assert gone_trend is None  # 趋势已随竞品清除
+    gone_read = (
+        await session.execute(select(EventRead).where(EventRead.id == read.id))
+    ).scalar_one_or_none()
+    assert gone_read is None  # 事件已读标记已随竞品清除
+
+
 async def test_trash_restore_and_re_add_reconnects(
     client: object, session: object
 ) -> None:

@@ -230,7 +230,7 @@ class CompetitorOut(BaseModel):
         failed = _failed_sources(self.sources)
         if not failed:
             return "正常"
-        desc = f"抓取失败 {sum(s.fail_count for s in failed)} 次"
+        desc = f"异常页面 {len(failed)} 个"
         stopped = _auto_disabled_sources(self.sources)
         if stopped:
             desc += f"，{len(stopped)} 个页面已停用"

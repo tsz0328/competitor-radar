@@ -1,4 +1,6 @@
-from sqlalchemy import JSON, Integer, String, Text
+from datetime import datetime, timezone
+
+from sqlalchemy import JSON, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, BigIntPK
@@ -52,3 +54,17 @@ class User(Base):
 
     # 用户级偏好（跟账号走，不落浏览器）：如"允许添加不可达官网""新增竞品默认勾选的监控页"等
     preferences: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # 注册时间：Python 侧默认兜底 + server_default 建表默认。双保险的原因：
+    # SQLite 存量库迁移加列时无法带非常量默认值，列上没有 DB 默认，
+    # 得靠 ORM 插入时用 Python 默认填值（存量行由迁移 UPDATE 回填）。
+    # 最近活跃：登录成功（密码 / 验证码登录）时更新；NULL = 从未登录。
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

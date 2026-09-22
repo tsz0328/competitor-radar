@@ -5,6 +5,7 @@ import type { UploadRequestOptions } from "element-plus";
 import { Refresh } from "@element-plus/icons-vue";
 import {
   listAdminCompetitors,
+  refreshCompetitorIcon,
   uploadCompetitorIcon,
   type AdminCompetitor,
 } from "@/api/admin";
@@ -13,17 +14,41 @@ import CompetitorLogo from "@/components/CompetitorLogo.vue";
 const loading = ref(false);
 const rows = ref<AdminCompetitor[]>([]);
 const keyword = ref("");
+const refreshingId = ref<number | null>(null);
+const page = ref(1);
+const pageSize = ref(10);
+const total = ref(0);
 
 async function load() {
   loading.value = true;
   try {
-    rows.value = await listAdminCompetitors(keyword.value.trim() || undefined);
+    const res = await listAdminCompetitors({
+      keyword: keyword.value.trim() || undefined,
+      page: page.value,
+      page_size: pageSize.value,
+    });
+    rows.value = res.items;
+    total.value = res.total;
+  } catch {
+    // 错误提示由 request.ts 统一弹出
   } finally {
     loading.value = false;
   }
 }
 
 function onSearch() {
+  page.value = 1;
+  load();
+}
+
+function onPageChange(p: number) {
+  page.value = p;
+  load();
+}
+
+function onSizeChange(size: number) {
+  pageSize.value = size;
+  page.value = 1;
   load();
 }
 
@@ -72,6 +97,20 @@ function ownerLabel(row: AdminCompetitor) {
   return row.ownerNickname || row.ownerUsername || "未知用户";
 }
 
+/** 管理员重新获取图标：自动去官网解析并沉淀进共享库（同域名竞品一并生效） */
+async function refreshIcon(row: AdminCompetitor) {
+  refreshingId.value = row.id;
+  try {
+    const res = await refreshCompetitorIcon(row.id);
+    ElMessage.success("已重新获取图标，同域名竞品将一并更新");
+    row.logoUrl = res.logoUrl;
+  } catch {
+    // 错误提示由 request.ts 统一弹出
+  } finally {
+    refreshingId.value = null;
+  }
+}
+
 onMounted(load);
 </script>
 <template>
@@ -80,7 +119,7 @@ onMounted(load);
       <div>
         <div class="title">全部竞品</div>
         <div class="subtitle">
-          查看所有用户添加的竞品；图标缺失或不正确时，可上传官方图标（同域名竞品一并生效）
+          查看所有用户添加的竞品；图标缺失或不正确时，可点击「重新获取」自动从官网解析（同域名竞品一并生效），或「上传图标」手动提供官方图标
         </div>
       </div>
       <div class="actions">
@@ -101,6 +140,10 @@ onMounted(load);
     </section>
 
     <section class="card table-card">
+      <header class="card-head">
+        <span class="card-title">竞品列表</span>
+        <span class="card-hint">共 {{ total }} 个竞品</span>
+      </header>
       <el-table :data="rows" v-loading="loading" size="large">
         <el-table-column label="竞品" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
@@ -136,12 +179,23 @@ onMounted(load);
         </el-table-column>
         <el-table-column label="变化" width="110">
           <template #default="{ row }">
-            <span>{{ row.changes }}</span>
-            <span class="muted">（今日 +{{ row.todayChanges }}）</span>
+            <template v-if="row.changes > 0 || row.todayChanges > 0">
+              <span>{{ row.changes }}</span>
+              <span class="muted">（今日 +{{ row.todayChanges }}）</span>
+            </template>
+            <span v-else class="muted">暂无</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="130" fixed="right">
+        <el-table-column label="操作" width="170" fixed="right">
           <template #default="{ row }">
+            <el-button
+              link
+              type="primary"
+              :loading="refreshingId === row.id"
+              @click="refreshIcon(row)"
+            >
+              重新获取
+            </el-button>
             <el-button link type="primary" @click="openUpload(row)">
               上传图标
             </el-button>
@@ -149,8 +203,19 @@ onMounted(load);
         </el-table-column>
       </el-table>
 
-      <div v-if="!loading && rows.length === 0" class="empty-hint">
-        没有匹配的竞品
+      <el-empty v-if="!loading && rows.length === 0" description="没有匹配的竞品" />
+
+      <div v-if="total > 0" class="pagination">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next"
+          :total="total"
+          :current-page="page"
+          :page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          @current-change="onPageChange"
+          @size-change="onSizeChange"
+        />
       </div>
     </section>
 
@@ -193,6 +258,11 @@ onMounted(load);
   </div>
 </template>
 <style scoped>
+.card {
+  background-color: var(--app-color-white);
+  border-radius: 1vmax;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+}
 .admin-competitors {
   height: 100%;
   overflow-y: auto;
@@ -239,6 +309,21 @@ onMounted(load);
   gap: 1vh;
 }
 
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2vw;
+}
+.card-title {
+  font-size: 1.1vmax;
+  font-weight: bold;
+}
+.card-hint {
+  font-size: 0.9vmax;
+  color: var(--app-color-gray);
+}
+
 .brand-cell {
   display: inline-flex;
   align-items: center;
@@ -255,6 +340,12 @@ onMounted(load);
   text-align: center;
   color: var(--app-color-gray);
   padding: 4vh 0;
+}
+
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 0.5vh;
 }
 
 .dialog-body {

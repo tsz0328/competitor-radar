@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import logoUrl from "@/assets/logo.png";
+import logoUrl from "@/assets/logo.svg";
 
 defineProps({
   /** 尺寸，传 em 可跟随父级 font-size 缩放 */

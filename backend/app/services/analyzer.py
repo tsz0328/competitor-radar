@@ -4,6 +4,7 @@
 """
 import difflib
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -105,11 +106,19 @@ async def _capture_logo_from_html(
         if competitor.logo_url:
             return
         candidate = favicon.pick_icon_from_html(html_text, source.url)
-        if not candidate or not await favicon.validate_icon(candidate):
+        if not candidate:
             return
-        competitor.logo_url = candidate
-        await favicon.remember_favicon(competitor.official_url or source.url, candidate)
-        logger.info("记录竞品图标 competitor=%s url=%s", competitor.id, candidate)
+        # 优先把图标沉淀进跨用户共享的图标库：首个抓到该域名的用户写入，
+        # 之后其他用户（含再次添加）创建/抓取时直接命中，不必重复抓。
+        logo_url = await icon_library.save_from_url(db, competitor.official_url, candidate)
+        if not logo_url and await favicon.validate_icon(candidate):
+            # 不支持入库的格式（如 SVG）或下载失败：退化为外链，仅本竞品使用、不入共享库
+            logo_url = candidate
+        if not logo_url:
+            return
+        competitor.logo_url = logo_url
+        await favicon.remember_favicon(competitor.official_url or source.url, logo_url)
+        logger.info("记录竞品图标 competitor=%s url=%s", competitor.id, logo_url)
     except Exception as exc:  # noqa: BLE001 - 图标解析失败不影响抓取
         logger.warning("解析竞品图标失败 competitor=%s err=%s", competitor.id, type(exc).__name__)
 
@@ -228,7 +237,7 @@ async def _notify_high_priority(
     这是相对于"整批结束后的汇总通知"的**单条即时推送**（见 scheduler 的批次汇总）。
     推送是旁路：notifier 内部已保证失败不影响主流程，且只在 NOTIFY_ENABLED 时发送。
 
-    notify_to：竞品归属用户在「用户中心」里填的通知邮箱；没填则由 notifier 回退运维配置。
+    notify_to：竞品归属用户在「用户中心」里填的通知邮箱；没填则**只推站内铃铛**。
     """
     link = f"{settings.frontend_base_url.rstrip('/')}/app/event?id={event.id}"
     label = EVENT_TYPE_LABELS.get(event.event_type, "情报变化")
@@ -331,7 +340,12 @@ async def _crawl_source_locked(
         fetch = await crawler.fetch_auto(source.url, cfg)
     except Exception as exc:  # noqa: BLE001 - 兜底，绝不让单源异常打断整批
         return _record_failure(
-            db, competitor, source, f"抓取异常：{type(exc).__name__}", None, 0
+            db,
+            competitor,
+            source,
+            f"抓取失败：请检查该监控源的网址是否可访问后重试（{type(exc).__name__}）",
+            None,
+            0,
         )
 
     if not fetch.ok:
@@ -441,6 +455,17 @@ async def _crawl_source_locked(
     )
 
 
+# 进行中的抓取（进程内存）：(user_id, competitor_id) → 开始时间戳。
+# 供前端刷新页面后恢复「抓取中」按钮状态；抓取结束（成功/失败）即移除。
+# 手动接口与定时调度共用同一登记点，刷新后依然能反映真实的抓取进度。
+_running_crawls: dict[tuple[int, int], float] = {}
+
+
+def active_crawl_ids(user_id: int) -> list[int]:
+    """该用户当前进行中的抓取竞品 id 列表。"""
+    return [cid for (uid, cid) in _running_crawls if uid == user_id]
+
+
 async def run_competitor_crawl(
     db: AsyncSession,
     competitor: Competitor,
@@ -457,6 +482,21 @@ async def run_competitor_crawl(
 
     注意：这里不 commit，由调用方决定提交粒度（接口一次性提交、调度逐源提交）。
     """
+    key = (competitor.user_id, competitor.id)
+    _running_crawls[key] = time.time()
+    try:
+        return await _crawl_sources_inner(db, competitor, sources, trigger)
+    finally:
+        _running_crawls.pop(key, None)
+
+
+async def _crawl_sources_inner(
+    db: AsyncSession,
+    competitor: Competitor,
+    sources: list[MonitorSource],
+    trigger: str,
+) -> list[SourceCrawlOutcome]:
+    """真正的逐源抓取主体（由 run_competitor_crawl 登记进行中标记后调用）。"""
     outcomes: list[SourceCrawlOutcome] = []
     for source in sources:
         outcome = await crawl_source(db, competitor, source)

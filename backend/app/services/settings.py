@@ -18,6 +18,7 @@
 import json
 import logging
 import time
+from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy import func, select
@@ -43,7 +44,7 @@ from app.schemas.setting import (
 logger = logging.getLogger(__name__)
 
 # 供应商不存在 / 操作对象无效时的统一提示
-_ERR_PROVIDER_NOT_FOUND = "供应商不存在或已被删除"
+_ERR_PROVIDER_NOT_FOUND = "供应商不存在或已被删除，请刷新后重试或重新添加"
 
 
 def mask_api_key(key: str) -> str:
@@ -230,6 +231,38 @@ def _extract_model_ids(data: object) -> list[str]:
     return out
 
 
+# 明显不支持 /chat/completions 的模型（文生图/图生图/嵌入/语音/重排/审核等）的 id 特征。
+# 上游 /models 没有标准的「能力」字段，只能按 id 启发式识别；
+# 仅用于拉取列表的过滤与前端手填提示，不做硬校验（手填可绕过，靠「测试连接」兜底）。
+_NON_CHAT_MODEL_PATTERNS: tuple[str, ...] = (
+    "dall-e",            # 文生图（OpenAI）
+    "gpt-image",         # 图生图（OpenAI）
+    "wanx",              # 通义万相 文生图
+    "cogview",           # 智谱 文生图
+    "seedream",          # 即梦/豆包 文生图
+    "stable-diffusion",  # 扩散文生图
+    "sdxl",              # SDXL 文生图
+    "flux",              # FLUX 文生图
+    "embedding",         # 嵌入（text-embedding-* / embed-*）
+    "bge-",              # BGE 嵌入
+    "tts",               # 语音合成
+    "whisper",           # 语音识别
+    "transcribe",        # 语音转写（gpt-4o-transcribe 等）
+    "realtime",          # 实时语音（gpt-4o-realtime）
+    "rerank",            # 重排（gte-rerank 等）
+    "moderation",        # 内容审核
+    "video",             # 视频生成
+    "sora",              # 视频生成（OpenAI）
+    "kling",             # 可灵 视频生成
+)
+
+
+def looks_non_chat_model(model_id: str) -> bool:
+    """按 id 启发式判断模型是否明显不支持对话补全（文生图/嵌入/语音等）。"""
+    mid = (model_id or "").strip().lower()
+    return any(p in mid for p in _NON_CHAT_MODEL_PATTERNS)
+
+
 def _provider_out(p: LlmProvider) -> LLMProviderOut:
     return LLMProviderOut(
         id=p.id,
@@ -241,6 +274,8 @@ def _provider_out(p: LlmProvider) -> LLMProviderOut:
         is_active=p.is_active,
         # 只回数量：完整列表用 get_provider_models 按需取，避免大列表全量传输
         models_count=len(_parse_models(p.models)),
+        test_status=p.last_test_status,
+        last_test_at=p.last_test_at,
     )
 
 
@@ -396,7 +431,7 @@ async def reorder_providers(db: AsyncSession, user_id: int, ids: list[int]) -> N
     )
     objs = {p.id: p for p in res.scalars().all()}
     if len(objs) != len(ids):
-        raise BusinessError(ERR_LLM_CONFIG_INVALID, "供应商不存在或已被删除", 404)
+        raise BusinessError(ERR_LLM_CONFIG_INVALID, "供应商不存在或已被删除，请刷新后重试或重新添加", 404)
     for i, pid in enumerate(ids):
         objs[pid].sort_order = i
     await db.commit()
@@ -429,6 +464,14 @@ async def update_provider(
         prov.api_key = ""
     elif payload.api_key:
         prov.api_key = payload.api_key.strip()
+
+    # 配置被改过：旧测试结果作废，回到「未测试」，避免标签显示过时状态
+    if any(
+        x is not None
+        for x in (payload.name, payload.base_url, payload.model, payload.api_key)
+    ) or payload.clear_api_key:
+        prov.last_test_status = "none"
+        prov.last_test_at = None
 
     if prov.is_active and not (prov.api_key and prov.base_url and prov.model):
         raise BusinessError(
@@ -533,6 +576,47 @@ def _extract_error(resp: httpx.Response) -> str:
     return (resp.text or "").strip()[:160] or "未知错误"
 
 
+def _friendly_fetch_error(status_code: int, raw: str) -> str:
+    """把拉取 /models 的 HTTP 错误转成可读提示：识别常见 Key / 地址 / 限流问题。"""
+    lowered = (raw or "").lower()
+    if status_code in (401, 403):
+        if any(
+            kw in lowered
+            for kw in (
+                "key",
+                "credential",
+                "token",
+                "auth",
+                "denied",
+                "forbidden",
+                "invalid",
+                "unauthorized",
+            )
+        ):
+            return f"API Key 无效或已过期，请检查后重试（HTTP {status_code}：{raw}）"
+        return f"无权限访问该接口（HTTP {status_code}），请确认 API Key 是否正确"
+    if status_code == 404:
+        return "API 地址或接口路径不存在（HTTP 404），请确认是否为 OpenAI 兼容接口"
+    if status_code == 429:
+        return "请求过于频繁，请稍后再试（HTTP 429）"
+    if status_code >= 500:
+        return f"上游服务异常（HTTP {status_code}），请稍后再试"
+    return f"获取失败（HTTP {status_code}）：{raw}"
+
+
+def _friendly_connection_error(exc: Exception) -> str:
+    """把连接类异常翻译成带操作引导的中文提示（避免把异常类名直接丢给用户）。"""
+    if isinstance(exc, httpx.ConnectError):
+        return "无法连接到 API 地址，请检查地址是否正确、网络是否可达"
+    if isinstance(exc, httpx.UnsupportedProtocol):
+        return "API 地址协议不受支持，请以 http:// 或 https:// 开头"
+    if isinstance(exc, httpx.InvalidURL):
+        return "API 地址格式不正确，请以 http:// 或 https:// 开头"
+    if isinstance(exc, ValueError):  # 含 json.JSONDecodeError：上游返回的不是合法 JSON
+        return "上游返回内容无法解析，可能不是 OpenAI 兼容接口，请检查 API 地址"
+    return "连接失败，请检查 API 地址、Key 与网络后重试"
+
+
 async def test_llm_connection(
     db: AsyncSession, user_id: int, payload: LLMTestRequest
 ) -> LLMTestResult:
@@ -541,6 +625,16 @@ async def test_llm_connection(
     payload.provider_id 指向**自己**已保存的供应商时，缺省值取它的地址 / 模型 / Key
     （Key 前端拿不到，必须由后端自己取）；别人的供应商等同不存在。
     """
+    prov: LlmProvider | None = None
+
+    async def _save_test(ok: bool) -> None:
+        """把测试结果落到已保存的供应商上（未保存的草稿不落库）。"""
+        if prov is None:
+            return
+        prov.last_test_status = "ok" if ok else "fail"
+        prov.last_test_at = datetime.now(timezone.utc)
+        await db.commit()
+
     if payload.provider_id is not None:
         prov = await _get_owned_provider(db, user_id, payload.provider_id)
         saved = LLMConfig(
@@ -584,24 +678,36 @@ async def test_llm_connection(
             resp.raise_for_status()
     except httpx.HTTPStatusError as exc:
         latency = int((time.perf_counter() - started) * 1000)
+        await _save_test(False)
         return LLMTestResult(
             ok=False,
-            message=f"连接失败（HTTP {exc.response.status_code}）：{_extract_error(exc.response)}",
+            message=_friendly_fetch_error(
+                exc.response.status_code, _extract_error(exc.response)
+            ),
             model=model,
             latency_ms=latency,
         )
     except httpx.TimeoutException:
         latency = int((time.perf_counter() - started) * 1000)
+        await _save_test(False)
         return LLMTestResult(
-            ok=False, message=f"连接超时（>{timeout:g}s）", model=model, latency_ms=latency
+            ok=False,
+            message=f"连接超时（>{timeout:g}s），请检查网络后重试，或在设置中调大超时时间",
+            model=model,
+            latency_ms=latency,
         )
     except Exception as exc:  # noqa: BLE001 - 网络/解析等杂项异常统一收敛
         latency = int((time.perf_counter() - started) * 1000)
+        await _save_test(False)
         return LLMTestResult(
-            ok=False, message=f"连接失败：{type(exc).__name__}", model=model, latency_ms=latency
+            ok=False,
+            message=_friendly_connection_error(exc),
+            model=model,
+            latency_ms=latency,
         )
 
     latency = int((time.perf_counter() - started) * 1000)
+    await _save_test(True)
     return LLMTestResult(
         ok=True, message=f"连接成功，模型可用（耗时 {latency} ms）", model=model, latency_ms=latency
     )
@@ -644,15 +750,17 @@ async def fetch_provider_models(
         return LLMFetchModelsResult(
             ok=False,
             models=[],
-            message=f"获取失败（HTTP {exc.response.status_code}）：{_extract_error(exc.response)}",
+            message=_friendly_fetch_error(
+                exc.response.status_code, _extract_error(exc.response)
+            ),
         )
     except httpx.TimeoutException:
         return LLMFetchModelsResult(
-            ok=False, models=[], message=f"获取超时（>{timeout:g}s）"
+            ok=False, models=[], message=f"获取超时（>{timeout:g}s），请检查网络后重试"
         )
     except Exception as exc:  # noqa: BLE001 - 网络/解析等杂项异常统一收敛
         return LLMFetchModelsResult(
-            ok=False, models=[], message=f"获取失败：{type(exc).__name__}"
+            ok=False, models=[], message=_friendly_connection_error(exc)
         )
 
     models = _extract_model_ids(data)
@@ -662,6 +770,18 @@ async def fetch_provider_models(
             models=[],
             message="上游未返回任何模型，请确认地址是否为 OpenAI 兼容接口",
         )
+    chat_models = [m for m in models if not looks_non_chat_model(m)]
+    filtered = [m for m in models if looks_non_chat_model(m)]
+    if not chat_models:
+        return LLMFetchModelsResult(
+            ok=False,
+            models=[],
+            filtered_models=filtered,
+            message="上游返回的均为非对话模型（文生图/嵌入/语音等），本系统需要支持对话补全的模型",
+        )
+    message = f"已获取 {len(chat_models)} 个对话模型"
+    if filtered:
+        message += f"，已过滤 {len(filtered)} 个非对话模型"
     return LLMFetchModelsResult(
-        ok=True, models=models, message=f"已获取 {len(models)} 个模型"
+        ok=True, models=chat_models, filtered_models=filtered, message=message
     )

@@ -1,4 +1,4 @@
-import { authUser, db, err, idFrom, ok, ownedCompetitorIds, serializeEvent } from "./db";
+import { authUser, db, err, idFrom, ok, ownedCompetitorIds, serializeEvent, userFromToken } from "./db";
 
 function requireUser(headers: any) {
   return authUser(headers) || null;
@@ -48,6 +48,29 @@ export default [
       const u = requireUser(headers);
       if (!u) return err(40100, "未登录或登录已过期");
       return ok({ unread: unreadCount(db(), u.id) });
+    },
+  },
+  {
+    url: "/api/notifications/stream",
+    method: "get",
+    // SSE：EventSource 不能带自定义头，令牌走 ?token= 查询参数（与后端 get_current_user_sse 一致）
+    rawResponse: (req: any, res: any) => {
+      const token = new URL(req.url || "", "http://localhost").searchParams.get("token") || "";
+      const user = userFromToken(token);
+      if (!user) {
+        res.statusCode = 401;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ code: 40102, message: "令牌无效或已过期", data: null }));
+        return;
+      }
+      const d = db();
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.write(`data: ${JSON.stringify({ unread: unreadCount(d, user.id) })}\n\n`);
+      const hb = setInterval(() => res.write(": keep-alive\n\n"), 30_000);
+      req.on("close", () => clearInterval(hb));
     },
   },
   {

@@ -161,3 +161,14 @@ class ReportGenerateOut(BaseModel):
 
     status: str = "created"
     report: ReportDetailOut | None = None
+
+
+class ReportGenerateStatusOut(BaseModel):
+    """当前用户正在生成的报告类型（null 表示无进行中的生成）。
+
+    生成是同步请求，前端刷新后靠它恢复「生成中」按钮状态。
+    """
+
+    model_config = _CFG
+
+    generating: str | None = None

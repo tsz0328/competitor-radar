@@ -54,7 +54,7 @@ async def _get_owned_competitor(
         )
     ).scalar_one_or_none()
     if competitor is None:
-        raise BusinessError(ERR_COMPETITOR_NOT_FOUND, "竞品不存在", 404)
+        raise BusinessError(ERR_COMPETITOR_NOT_FOUND, "竞品不存在或已被删除，请刷新列表后重试", 404)
     return competitor
 
 

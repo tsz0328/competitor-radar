@@ -31,7 +31,7 @@ from app.models.competitor import Competitor, CompetitorStatus
 from app.models.crawl_log import TRIGGER_SCHEDULER
 from app.models.source import MonitorSource
 from app.models.user import User
-from app.models.weekly_report import ReportType
+from app.models.weekly_report import ReportType, WeeklyReport
 from app.services import analyzer, notifier
 from app.services import report as report_service
 
@@ -96,6 +96,9 @@ async def _crawl_due_sources_locked() -> int:
     """抢到锁之后的实际抓取逻辑（与锁无关，单独成函数便于阅读）。"""
     now = datetime.now(timezone.utc)
     crawled = changed = events = 0
+    # 按用户累计本轮结果：调度器是**全库扫**（不按 user 过滤），一批里可能混着
+    # 多个账号的页面，所以汇总通知必须拆回各自的竞品归属人，见 _notify_crawl_summary。
+    per_user: dict[int, dict[str, int]] = {}
 
     async with SessionLocal() as db:
         rows = (
@@ -132,24 +135,77 @@ async def _crawl_due_sources_locked() -> int:
                 continue
 
             crawled += 1
-            changed += sum(1 for outcome in outcomes if outcome.changed)
-            events += sum(1 for outcome in outcomes if outcome.event_created)
+            source_changed = sum(1 for outcome in outcomes if outcome.changed)
+            source_events = sum(1 for outcome in outcomes if outcome.event_created)
+            changed += source_changed
+            events += source_events
+
+            stat = per_user.setdefault(
+                competitor.user_id, {"crawled": 0, "changed": 0, "events": 0}
+            )
+            stat["crawled"] += 1
+            stat["changed"] += source_changed
+            stat["events"] += source_events
 
             # 温和错峰：同一批内不连续冲击目标站点
             if settings.scheduler_jitter_seconds > 0 and index < len(due) - 1:
                 await asyncio.sleep(settings.scheduler_jitter_seconds)
 
+        # 会话还开着时一次拿全表 id→email（避免逐用户查库）
+        emails: dict[int, str | None] = dict(
+            (await db.execute(select(User.id, User.email))).all()
+        )
+
     if crawled:
         logger.info(
             "调度器：本轮完成 sources=%s changed=%s events=%s", crawled, changed, events
         )
-    if changed or events:
-        await notifier.notify(
-            f"竞品雷达：发现 {changed} 处页面变化",
-            f"本轮自动抓取 {crawled} 个监控页面，{changed} 处发生变化，"
-            f"新增 {events} 条情报事件。登录「情报事件」页查看详情。",
-        )
+    await _notify_crawl_summary(per_user, emails)
     return crawled
+
+
+async def _notify_crawl_summary(
+    per_user: dict[int, dict[str, int]], emails: dict[int, str | None]
+) -> None:
+    """把本轮抓取结果**按用户分别汇报**——只发给竞品归属人自己。
+
+    调度器一批会扫到多个账号的页面，所以必须逐用户发；收件人取该账号自己在
+    「用户中心」绑定的邮箱。**没绑邮箱就只推站内铃铛、不发邮件**，与 analyzer 的
+    高优事件同口径——绝不能回落到 NOTIFY_RECIPIENTS / SMTP_USERNAME：那是运维
+    邮箱，会把 A 用户的竞品动态投到 B 的信箱。
+    """
+    for user_id, stat in per_user.items():
+        # 本轮没有变化就不打扰（"抓了但没变"不值得发信）
+        if not (stat["changed"] or stat["events"]):
+            continue
+        email = emails.get(user_id)
+        if not email:
+            continue
+        await notifier.notify(
+            f"竞品雷达：你的 {stat['changed']} 处监控页面发生变化",
+            f"本轮自动抓取你的 {stat['crawled']} 个监控页面，"
+            f"{stat['changed']} 处发生变化，新增 {stat['events']} 条情报事件。"
+            "登录「情报事件」页查看详情。",
+            to=[email],
+        )
+
+
+def _report_ready_mail(
+    email: str | None, report: WeeklyReport, label: str
+) -> tuple[str, str, str] | None:
+    """这期报告已生成 → 返回 (收件人, 标题, 正文)；没邮箱或名下没竞品则 None。
+
+    没有竞品的账号也会被生成一份"空报告"，但给它发「你的周报已生成」很莫名，
+    所以只通知真正有竞品要看的账号。
+    """
+    if not email or not report.competitor_count:
+        return None
+    return (
+        email,
+        f"竞品雷达：你的本{label}已生成",
+        f"你的「{report.title}」已生成（覆盖 {report.competitor_count} 个竞品、"
+        f"{report.event_count} 条情报），可在「AI 报告」页查看。",
+    )
 
 
 async def generate_weekly_reports() -> int:
@@ -184,13 +240,15 @@ async def _generate_period_reports_locked(report_type: ReportType) -> int:
 
     async with SessionLocal() as db:
         users = (await db.execute(select(User))).scalars().all()
+        # (收件人, 标题, 正文)：攒齐后出会话再发信，不把 DB 会话和 SMTP 超时绑在一起
+        pending: list[tuple[str, str, str]] = []
         for user in users:
             try:
                 if await report_service.window_has_report(
                     db, user.id, start, report_type
                 ):
                     continue
-                await report_service.generate_report(
+                report = await report_service.generate_report(
                     db, user, report_type=report_type
                 )
                 await db.commit()
@@ -198,13 +256,17 @@ async def _generate_period_reports_locked(report_type: ReportType) -> int:
             except Exception:  # noqa: BLE001 - 单个用户失败不影响其他用户
                 await db.rollback()
                 logger.exception("调度器：生成%s失败 user=%s", label, user.id)
+                continue
+            # 顺手把要发的邮件拼成纯值（收件人 + 标题 + 正文），别把 ORM 对象带出会话
+            mail = _report_ready_mail(user.email, report, label)
+            if mail is not None:
+                pending.append(mail)
 
     if created:
         logger.info("调度器：已为 %d 个账号生成本%s", created, label)
-        await notifier.notify(
-            f"竞品雷达：本{label}已生成",
-            f"已为 {created} 个账号生成本{'月' if report_type == ReportType.MONTHLY else '周'}竞品{label}，可在「AI 报告」页查看。",
-        )
+    # 报告是「这个账号的」，完成通知只能发给他本人（绝不发运维邮箱）
+    for email, title, message in pending:
+        await notifier.notify(title, message, to=[email])
     return created
 
 

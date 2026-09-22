@@ -162,7 +162,7 @@ async def verify_code(email: str, scene: str, code: str) -> None:
     await cache.set(
         _attempt_key(scene, email), str(attempts), settings.email_code_ttl_seconds
     )
-    raise BusinessError(ERR_EMAIL_CODE_INVALID, "验证码错误或已过期", 400)
+    raise BusinessError(ERR_EMAIL_CODE_INVALID, "验证码错误或已过期，请重新获取验证码后输入", 400)
 
 
 async def _clear_cooldown(email: str) -> None:

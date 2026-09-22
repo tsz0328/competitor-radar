@@ -180,7 +180,7 @@ async def change_my_password(
         not payload.old_password
         or not verify_password(payload.old_password, current_user.password_hash)
     ):
-        raise BusinessError(ERR_OLD_PASSWORD_WRONG, "原密码不正确", 400)
+        raise BusinessError(ERR_OLD_PASSWORD_WRONG, "原密码不正确，请确认后重试", 400)
     current_user.password_hash = hash_password(payload.new_password)
     current_user.password_length = len(payload.new_password)
     await db.commit()
@@ -206,5 +206,5 @@ async def get_user(
 ):
     """查看用户资料：只允许查看自己，别人的 id 一律按「不存在」处理。"""
     if user_id != current_user.id:
-        raise BusinessError(ERR_USER_NOT_FOUND, "用户不存在", 404)
+        raise BusinessError(ERR_USER_NOT_FOUND, "用户不存在或已被删除，请刷新后重试", 404)
     return current_user

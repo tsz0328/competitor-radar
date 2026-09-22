@@ -18,11 +18,21 @@ const auth = useAuthStore();
 let unreadTimer: ReturnType<typeof setInterval> | undefined;
 let es: EventSource | null = null;
 
-/** 点开某条通知：标记已读并跳到对应事件详情（复用 P1 的 id 深链） */
+/**
+ * 点开某条通知：跳到对应事件详情（复用 id 深链），并带 notify=1 标记。
+ * 注意：这里**不**立即标记已读——改为等详情抽屉主数据加载成功后再标记
+ * （见 Event.vue 的 onDetailLoaded + EventDetailDrawer 的 loaded 事件）。
+ * 否则详情加载失败时通知已被标已读、又从不归档的未读列表里消失，用户就再也找不回了。
+ */
 function openNotification(id: number) {
-  notify.markRead(id);
   notifyVisible.value = false;
-  router.push({ name: "Event", query: { id: String(id) } });
+  router.push({ name: "Event", query: { id: String(id), notify: "1" } });
+}
+
+/** 打开通知中心（归档全量通知）：铃铛只列未读，这里进完整列表 */
+function goNotificationCenter() {
+  notifyVisible.value = false;
+  router.push({ name: "NotificationCenter" });
 }
 
 // 顶栏展示当前 LLM 模式：真实模型 / 规则 Mock
@@ -124,14 +134,19 @@ onUnmounted(() => {
         </template>
         <div class="notify-panel">
           <div class="notify-head">
-            <span class="notify-title">通知中心</span>
-            <el-button
-              link
-              type="primary"
-              :disabled="notify.unreadCount === 0"
-              @click="notify.markAllRead()"
-              >全部已读</el-button
-            >
+            <span class="notify-title">未读通知</span>
+            <div class="notify-head-actions">
+              <el-button
+                link
+                type="primary"
+                :disabled="notify.unreadCount === 0"
+                @click="notify.markAllRead()"
+                >全部已读</el-button
+              >
+              <el-button link type="primary" @click="goNotificationCenter()"
+                >查看全部</el-button
+              >
+            </div>
           </div>
           <div v-loading="notify.loading" class="notify-list">
             <!-- 列表只列未读：读过的条目不再占位（未读数看角标） -->
@@ -276,6 +291,11 @@ onUnmounted(() => {
 .notify-title {
   font-weight: bold;
   font-size: 1vmax;
+}
+.notify-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4vmax;
 }
 .notify-list {
   margin-top: 0.6vh;

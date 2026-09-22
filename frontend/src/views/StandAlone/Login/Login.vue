@@ -370,12 +370,6 @@ const onReset = async () => {
             <el-button class="form-link forgot-btn" link @click="openReset"
               >忘记密码？</el-button
             >
-            <el-button
-              class="form-link mode-btn"
-              link
-              @click="loginMode = 'code'"
-              >验证码登录</el-button
-            >
           </div>
         </div>
         <el-button
@@ -389,6 +383,25 @@ const onReset = async () => {
             <ArrowRight />
           </el-icon>
         </el-button>
+
+        <!-- 更多登录方式：分界线 + 邮箱图标入口 -->
+        <div class="alt-login">
+          <div class="alt-divider">
+            <span class="alt-divider-line"></span>
+            <span class="alt-divider-text">更多登录方式</span>
+            <span class="alt-divider-line"></span>
+          </div>
+          <button
+            class="alt-icon-btn"
+            title="邮箱登录"
+            @click="loginMode = 'code'"
+          >
+            <el-icon :size="'1.3vmax'">
+              <Message />
+            </el-icon>
+            <span>邮箱</span>
+          </button>
+        </div>
       </div>
 
       <!-- 登录 · 邮箱验证码方式（邮箱没有账号时会自动注册） -->
@@ -396,6 +409,7 @@ const onReset = async () => {
         v-show="!resetVisible && activeTab === 'login' && loginMode === 'code'"
         class="form-body"
       >
+        <div class="mode-title">邮箱登录</div>
         <el-input
           v-model="codeLoginForm.email"
           :prefix-icon="User"
@@ -413,6 +427,7 @@ const onReset = async () => {
           />
           <el-button
             class="code-btn"
+            size="large"
             :loading="loginCodeSending"
             :disabled="loginCodeSeconds > 0"
             @click="sendLoginCode(codeLoginForm.email)"
@@ -423,12 +438,6 @@ const onReset = async () => {
         <div class="form-row">
           <el-checkbox v-model="codeLoginForm.remember" title="勾选后关闭浏览器再打开仍是登录状态"
             >记住我</el-checkbox
-          >
-          <el-button
-            class="form-link mode-btn"
-            link
-            @click="loginMode = 'password'"
-            >密码登录</el-button
           >
         </div>
         <el-button
@@ -442,9 +451,18 @@ const onReset = async () => {
             <ArrowRight />
           </el-icon>
         </el-button>
-        <div class="field-hint">
-          该邮箱还没有账号？验证通过后会自动为你创建（账号名默认就是该邮箱，登录后可在用户中心改）。
+        <div class="form-row form-row--center">
+          <el-button
+            class="back-btn-alt"
+            @click="loginMode = 'password'"
+          >
+            <el-icon>
+              <ArrowLeft />
+            </el-icon>
+            返回账号密码登录
+          </el-button>
         </div>
+        <div class="field-hint">邮箱登录会自动创建账号。</div>
       </div>
 
       <!-- 注册表单：账号必填；邮箱选填，填了才需要验证码（不验码就可被他人抢注） -->
@@ -476,6 +494,7 @@ const onReset = async () => {
           />
           <el-button
             class="code-btn"
+            size="large"
             :loading="registerCodeSending"
             :disabled="registerCodeSeconds > 0"
             @click="sendRegisterCode(registerForm.email)"
@@ -531,6 +550,7 @@ const onReset = async () => {
           />
           <el-button
             class="code-btn"
+            size="large"
             :loading="resetCodeSending"
             :disabled="resetCodeSeconds > 0"
             @click="sendResetCode(resetForm.account)"
@@ -738,19 +758,28 @@ const onReset = async () => {
 
 .form-body :deep(.el-input__inner) {
   color: var(--app-color-black);
+  /* 透明底色必须挂在基础规则上：v-show 切换后 Chrome 会暂时丢掉
+     :-webkit-autofill 伪类匹配，仅靠伪类规则会在重显时漏出白底；
+     这里让背景永远透明，并把底色裁到文字，Chrome 强制刷上的白底也透不出来 */
+  background-color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
 }
 
 /* 浏览器自动填充会强制刷上浅色底 + 固定文字色，导致透明输入框出现白块。
-   用超长 transition 延迟阻止 Chrome 覆盖 background-color，并统一文字/光标颜色。 */
+   组合手段覆盖不同时机：inset 透明阴影 + 超长 transition 延迟管刷新/首次填充，
+   background-clip: text 管 v-show 重显后的重绘。并统一文字/光标颜色。 */
 .form-body :deep(.el-input__inner:-webkit-autofill),
 .form-body :deep(.el-input__inner:-webkit-autofill:hover),
 .form-body :deep(.el-input__inner:-webkit-autofill:focus),
 .form-body :deep(.el-input__inner:-webkit-autofill:active),
 .form-body :deep(.el-input__inner:autofill) {
-  background-color: transparent;
-  -webkit-text-fill-color: var(--app-color-black);
-  caret-color: var(--app-color-black);
-  transition: background-color 9999999s ease-in-out 0s;
+  background-color: transparent !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: var(--app-color-black) !important;
+  caret-color: var(--app-color-black) !important;
+  transition: background-color 5000000s ease-in-out 0s;
 }
 
 .form-row {
@@ -769,9 +798,66 @@ const onReset = async () => {
   gap: 0.4vw;
 }
 
+/* 登录方式小标题：出现在切换后的表单顶部，交代当前所处方式 */
+.mode-title {
+  font-size: 1vmax;
+  font-weight: bold;
+  color: var(--app-color-purple);
+}
+
+/* 更多登录方式：一行分界线夹着文字，下面是可点击的方式图标 */
+.alt-login {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.2vh;
+}
+
+.alt-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.8vw;
+  width: 100%;
+}
+
+.alt-divider-line {
+  flex: 1;
+  height: 1px;
+  background: color-mix(in oklch, var(--app-color-gray) 30%, transparent);
+}
+
+.alt-divider-text {
+  font-size: 0.9vmax;
+  color: var(--app-color-gray);
+  white-space: nowrap;
+}
+
+.alt-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4vw;
+  padding: 0.6vh 1.2vw;
+  border-radius: 2vmax;
+  border: 1px solid color-mix(in oklch, var(--app-color-blue) 40%, transparent);
+  background: transparent;
+  cursor: pointer;
+  font-size: 1vmax;
+  color: var(--app-color-blue);
+  transition: all 0.2s ease;
+}
+
+.alt-icon-btn:hover {
+  border-color: var(--app-color-blue);
+  background: color-mix(in oklch, var(--app-color-blue) 8%, transparent);
+  color: var(--app-color-blue-light-1);
+  transform: translateY(-2px);
+}
+
 /* 验证码一行：输入框占满剩余宽度，按钮靠右并自动拉伸到与输入框等高 */
 .code-row {
   display: flex;
+  align-items: center;
   gap: 0.8vw;
 }
 
@@ -782,16 +868,55 @@ const onReset = async () => {
 
 .code-btn {
   flex: none;
-  --el-border-radius-base: 0.8vmax;
+  --el-border-radius-base: 6px;
   --el-font-size-base: 1.2vmax;
   margin: 0;
   padding: 0 1vw;
+  /* 与透明输入框风格统一：去掉默认白底，改为透明 + 蓝色描边 */
+  background: transparent;
+  border: 1px solid color-mix(in oklch, var(--app-color-blue) 80%, transparent);
+  color: var(--app-color-blue);
+  transition: all 0.2s ease;
+}
+
+.code-btn:hover,
+.code-btn:focus {
+  background: transparent;
+  border-color: var(--app-color-blue);
+  color: var(--app-color-blue-light-1);
 }
 
 .forgot-btn,
 .mode-btn,
 .register-btn {
   font-size: 1vmax;
+}
+
+/* 返回密码登录的透明按钮：与获取验证码按钮同风格，去 link 样式 */
+.back-btn-alt {
+  display: inline-flex;
+  align-items: center;
+  --el-border-radius-base: 0.8vmax;
+  --el-font-size-base: 1vmax;
+  margin: 0;
+  padding: 0.6vh 1.2vw;
+  background: transparent;
+  border: 1px solid color-mix(in oklch, var(--app-color-blue) 80%, transparent);
+  color: var(--app-color-blue);
+  transition: all 0.2s ease;
+}
+
+/* 图标与文字垂直居中，并拉开间距 */
+.back-btn-alt :deep(.el-icon) {
+  margin-right: 0.5vw;
+  vertical-align: middle;
+}
+
+.back-btn-alt:hover,
+.back-btn-alt:focus {
+  background: transparent;
+  border-color: var(--app-color-blue);
+  color: var(--app-color-blue-light-1);
 }
 
 .form-body :deep(.el-checkbox__inner) {

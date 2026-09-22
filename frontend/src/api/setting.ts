@@ -84,6 +84,9 @@ export interface LlmProvider {
   isActive: boolean;
   /** 已缓存的模型数量；完整列表用 fetchLlmProviderModels 按需取 */
   modelsCount: number;
+  /** 最近一次「测试连接」结果：none=未测试 / ok=通过 / fail=不通过 */
+  testStatus: "none" | "ok" | "fail";
+  lastTestAt?: string | null;
 }
 
 /** 添加供应商的入参 */
@@ -165,7 +168,10 @@ export interface LlmFetchModelsRequest {
 /** 从上游供应商拉取模型列表的结果 */
 export interface LlmFetchModelsResult {
   ok: boolean;
+  /** 只含对话补全模型（后端已过滤） */
   models: string[];
+  /** 被过滤掉的非对话模型（文生图/嵌入等），仅用于界面提示，不进下拉 */
+  filteredModels?: string[];
   message: string;
 }
 

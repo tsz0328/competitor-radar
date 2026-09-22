@@ -135,7 +135,7 @@ export default [
       };
       const hit = KNOWN[name.toLowerCase()];
       if (hit) return ok({ officialUrl: hit[0], category: hit[1], source: "probe", message: "已根据域名探测识别到官网与分类" });
-      return ok({ officialUrl: null, category: null, source: "none", message: "未能识别，请手动填写官网地址" });
+      return ok({ officialUrl: null, category: null, source: "none", message: "未能自动识别：未命中已知品牌库，常见域名探测也未确认到官网，请核对名称拼写后手动填写官网地址" });
     },
   },
   {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useEventStore } from "@/stores/event";
@@ -23,11 +23,15 @@ const trendDist = ref<
   { key: string; label: string; value: number; percent: number }[]
 >([]);
 
+// 趋势图加载是否失败：失败时给明确错误态与重试，而不是静默空白
+const trendError = ref(false);
+
 async function loadDailyTrend() {
   try {
     dailyTrend.value = await fetchDailyTrend(30);
   } catch {
     dailyTrend.value = [];
+    trendError.value = true;
   }
 }
 
@@ -50,6 +54,18 @@ async function loadTrendDist() {
     }));
   } catch {
     trendDist.value = [];
+    trendError.value = true;
+  }
+}
+
+/** 趋势卡片重试：重新拉趋势图与类型分布，并清掉错误态 */
+async function retryTrend() {
+  trendError.value = false;
+  trendLoading.value = true;
+  try {
+    await Promise.allSettled([loadDailyTrend(), loadTrendDist()]);
+  } finally {
+    trendLoading.value = false;
   }
 }
 
@@ -196,6 +212,27 @@ const focusEvents = computed(() => {
 });
 
 // 竞品动态：每个竞品今日的变化条数，多的在前
+const dynamicsExpanded = ref(false);
+const dynamicsListRef = ref<HTMLElement | null>(null);
+const dynamicsCols = ref(5);
+let dynamicsObserver: ResizeObserver | null = null;
+
+/** 按容器宽度估算「竞品动态」网格每行列数（240px/列 + 间距），用于按行数折叠 */
+function updateDynamicsCols() {
+  const el = dynamicsListRef.value;
+  if (!el) return;
+  const cs = getComputedStyle(el);
+  const gap = parseFloat(cs.columnGap || "0") || 0;
+  const colWidth = 240 + gap;
+  dynamicsCols.value = Math.max(1, Math.floor((el.clientWidth + gap) / colWidth));
+}
+
+onMounted(() => {
+  updateDynamicsCols();
+  dynamicsObserver = new ResizeObserver(updateDynamicsCols);
+  if (dynamicsListRef.value) dynamicsObserver.observe(dynamicsListRef.value);
+});
+onUnmounted(() => dynamicsObserver?.disconnect());
 const competitorDynamics = computed(() => {
   const countMap = new Map<number, number>();
   for (const record of todayRecords.value) {
@@ -211,6 +248,15 @@ const competitorDynamics = computed(() => {
       todayCount: countMap.get(item.id) ?? 0,
     }))
     .sort((a, b) => b.todayCount - a.todayCount || a.name.localeCompare(b.name));
+});
+
+/** 默认只展示前 3 行竞品动态（每行数量随容器宽度变化），展开后显示全部 */
+const visibleDynamics = computed(() => {
+  const rowCount = 3;
+  const limit = dynamicsCols.value * rowCount;
+  return dynamicsExpanded.value
+    ? competitorDynamics.value
+    : competitorDynamics.value.slice(0, limit);
 });
 
 // 情报中心入口：今日各分类条数（用于「往下钻」的语境）
@@ -291,9 +337,9 @@ function onSelectRelated(id: number) {
         <div class="card-title">竞品动态</div>
         <div class="card-hint">点击有变化的竞品，查看它今天的情报</div>
       </header>
-      <div class="dynamics-list" v-loading="competitorStore.loading">
+      <div class="dynamics-list" ref="dynamicsListRef" v-loading="competitorStore.loading">
         <div
-          v-for="item in competitorDynamics"
+          v-for="item in visibleDynamics"
           :key="item.id"
           class="dyn-item"
           :class="{ 'is-clickable': item.todayCount > 0 }"
@@ -313,6 +359,14 @@ function onSelectRelated(id: number) {
           </span>
         </div>
         <div
+          v-if="competitorDynamics.length > dynamicsCols * 3"
+          class="dyn-expand"
+          @click="dynamicsExpanded = !dynamicsExpanded"
+        >
+          {{ dynamicsExpanded ? "收起" : "展开全部" }}
+          <span class="dyn-expand-arrow">{{ dynamicsExpanded ? "▲" : "▼" }}</span>
+        </div>
+        <div
           v-if="!competitorDynamics.length && !competitorStore.loading"
           class="empty-hint"
         >
@@ -328,20 +382,31 @@ function onSelectRelated(id: number) {
         <div class="card-hint">点击某一天，查看当天情报</div>
       </header>
       <div class="trend-body" v-loading="trendLoading">
-        <InfoTrendChart
-          :data="dailyTrend"
-          height="220px"
-          @select="onSelectTrendDate"
-        />
-        <div v-if="trendDist.length" class="dist-strip">
-          <div v-for="d in trendDist" :key="d.key" class="dist-mini">
-            <span class="dist-mini-label">{{ d.label }}</span>
-            <div class="dist-mini-bar">
-              <i :style="{ width: `${d.percent}%` }" />
-            </div>
-            <span class="dist-mini-value">{{ d.value }}</span>
+        <template v-if="trendError">
+          <div class="trend-error">
+            <el-icon><WarningFilled /></el-icon>
+            <span>趋势数据加载失败</span>
+            <el-button size="small" type="primary" plain @click="retryTrend">
+              重试
+            </el-button>
           </div>
-        </div>
+        </template>
+        <template v-else>
+          <InfoTrendChart
+            :data="dailyTrend"
+            height="220px"
+            @select="onSelectTrendDate"
+          />
+          <div v-if="trendDist.length" class="dist-strip">
+            <div v-for="d in trendDist" :key="d.key" class="dist-mini">
+              <span class="dist-mini-label">{{ d.label }}</span>
+              <div class="dist-mini-bar">
+                <i :style="{ width: `${d.percent}%` }" />
+              </div>
+              <span class="dist-mini-value">{{ d.value }}</span>
+            </div>
+          </div>
+        </template>
       </div>
     </section>
 
@@ -600,6 +665,16 @@ function onSelectRelated(id: number) {
   padding: 0 1vw 1.5vh;
 }
 
+.trend-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6vw;
+  min-height: 220px;
+  color: var(--app-color-gray);
+  font-size: 0.95vmax;
+}
+
 .dist-strip {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -828,6 +903,28 @@ function onSelectRelated(id: number) {
 
 .dyn-logo {
   flex-shrink: 0;
+}
+
+/* 展开/收起按钮：占满整行、居中、可点击 */
+.dyn-expand {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3vw;
+  padding: 0.6vh 0;
+  font-size: 0.82vmax;
+  color: var(--el-color-primary);
+  cursor: pointer;
+  user-select: none;
+  border-radius: 1vmax;
+  transition: background 0.2s ease;
+}
+.dyn-expand:hover {
+  background: var(--app-color-blue-light-5);
+}
+.dyn-expand-arrow {
+  font-size: 0.7vmax;
 }
 
 /* 竞品名优先显示：不参与收缩（原来它被挤成 0 宽，导致名字"消失"） */

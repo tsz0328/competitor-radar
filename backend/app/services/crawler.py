@@ -74,6 +74,19 @@ def _clean_error(message: str, limit: int = 300) -> str:
     """错误摘要截断，避免把整段堆栈写进库。"""
     message = re.sub(r"\s+", " ", (message or "").strip())
     return message[:limit]
+
+
+def _friendly_http_error(exc: httpx.HTTPError) -> str:
+    """把抓取层的网络异常翻译成带操作引导的中文提示（会写进抓取日志给用户看）。"""
+    if isinstance(exc, httpx.TimeoutException):
+        return "请求超时：请确认目标网站可访问，可在抓取设置中调大超时时间后重试"
+    if isinstance(exc, httpx.ConnectError):
+        return "无法连接目标网站：请检查网址是否正确、网络是否可达"
+    if isinstance(exc, httpx.InvalidURL):
+        return "网址格式不正确：请检查监控地址是否以 http:// 或 https:// 开头"
+    return f"请求失败：{type(exc).__name__}: {exc}"
+
+
 def _retry_wait_seconds(
     attempt: int,
     response: httpx.Response | None = None,
@@ -150,7 +163,7 @@ async def fetch_html(
                         attempts=attempt + 1,
                     )
         except httpx.HTTPError as exc:
-            last_error = _clean_error(f"请求失败：{type(exc).__name__}: {exc}")
+            last_error = _clean_error(_friendly_http_error(exc))
             if attempt < max_retries:
                 await asyncio.sleep(
                     _retry_wait_seconds(

@@ -46,7 +46,7 @@ def require_valid_email(raw: str | None) -> str:
     """校验并返回归一化后的邮箱；不合法直接抛业务异常。"""
     email = normalize_email(raw)
     if not is_valid_email(email):
-        raise BusinessError(ERR_EMAIL_INVALID, "邮箱格式不正确", 400)
+        raise BusinessError(ERR_EMAIL_INVALID, "邮箱格式不正确，请检查后重新输入", 400)
     return email
 
 

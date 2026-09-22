@@ -35,7 +35,7 @@ async def shared_report(
         await db.execute(select(WeeklyReport).where(WeeklyReport.share_token == token))
     ).scalar_one_or_none()
     if report is None:
-        raise BusinessError(ERR_SHARE_NOT_FOUND, "分享链接不存在或已被撤销", 404)
+        raise BusinessError(ERR_SHARE_NOT_FOUND, "分享链接不存在或已被撤销，请向分享者获取新链接", 404)
 
     # SQLite 不保存时区，取回的 expires_at 是 naive（实为 UTC），比较前统一归一化，
     # 否则 naive < aware 会抛 TypeError → 500

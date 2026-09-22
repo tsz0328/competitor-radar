@@ -37,3 +37,11 @@ class CrawlResult(BaseModel):
     failed: int = 0
     changed: int = 0
     results: list[CrawlSourceResult] = Field(default_factory=list)
+
+
+class CrawlStatusOut(BaseModel):
+    """当前用户正在进行中的抓取竞品 id 列表（供前端刷新后恢复「抓取中」状态）。"""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    competitor_ids: list[int] = Field(default_factory=list)

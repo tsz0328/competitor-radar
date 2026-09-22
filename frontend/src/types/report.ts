@@ -16,7 +16,7 @@ export interface ReportListItem {
   range: string;
   /** 监控竞品数量 */
   competitors: number;
-  /** 生成日期，如 2026-06-25 */
+  /** 生成时间（含时分），如 2026-06-25 10:24 */
   generatedAt: string;
   /** 是否收藏 */
   favorite: boolean;

@@ -565,7 +565,7 @@ def to_list_item(report: WeeklyReport) -> dict:
         "typeLabel": type_label,
         "range": _range_text(report.range_start, report.range_end),
         "competitors": report.competitor_count,
-        "generatedAt": format_time(report.created_at, "%Y-%m-%d"),
+        "generatedAt": format_time(report.created_at, "%Y-%m-%d %H:%M"),
         "favorite": bool(report.favorite),
         "monthGroup": f"{report.range_end.year}年{report.range_end.month}月",
         "deletedAt": (

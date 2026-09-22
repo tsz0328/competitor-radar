@@ -8,6 +8,9 @@ import {
 } from "@/api/report";
 
 export const useReportStore = defineStore("report", () => {
+  /** 正在生成中的报告类型（weekly/monthly）：放 store 而非组件，切换页面后按钮状态不丢 */
+  const generating = ref<"" | "weekly" | "monthly">("");
+
   // 报告列表
   const listLoading = ref(false);
   const reportList = ref<ReportListResult | null>(null);
@@ -61,6 +64,7 @@ export const useReportStore = defineStore("report", () => {
   return {
     listLoading,
     reportList,
+    generating,
     loadReportList,
     detailLoading,
     reportDetail,

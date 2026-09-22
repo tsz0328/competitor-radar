@@ -24,8 +24,10 @@ from app.core.source_registry import SourceType, get_source_config
 from app.core.timeutil import app_timezone, local_day_start_utc
 from app.models.competitor import Competitor
 from app.models.event import IntelligenceEvent
+from app.models.notification import EventRead
 from app.models.snapshot import PageSnapshot
 from app.models.source import MonitorSource
+from app.models.trend import TrendInsight
 from app.models.user import User
 from app.schemas.competitor import (
     CompetitorCreate,
@@ -35,7 +37,7 @@ from app.schemas.competitor import (
     SuggestRequest,
     SuggestResult,
 )
-from app.schemas.snapshot import CrawlResult, CrawlSourceResult
+from app.schemas.snapshot import CrawlResult, CrawlSourceResult, CrawlStatusOut
 from app.schemas.source import (
     DiscoveredSourceOut,
     DiscoverRequest,
@@ -48,6 +50,7 @@ from app.services import settings as settings_service
 from app.services.analyzer import (
     STATUS_FAILED,
     STATUS_SUCCESS,
+    active_crawl_ids,
     run_competitor_crawl,
 )
 from app.services.crawler import fetch_html
@@ -215,7 +218,7 @@ async def _get_owned(db: AsyncSession, competitor_id: int, current_user: User) -
     )
     competitor = result.scalar_one_or_none()
     if competitor is None:
-        raise BusinessError(ERR_COMPETITOR_NOT_FOUND, "竞品不存在", 404)
+        raise BusinessError(ERR_COMPETITOR_NOT_FOUND, "竞品不存在或已被删除，请刷新列表后重试", 404)
     return competitor
 
 
@@ -229,16 +232,30 @@ async def _get_any_owned(db: AsyncSession, competitor_id: int, current_user: Use
     )
     competitor = result.scalar_one_or_none()
     if competitor is None:
-        raise BusinessError(ERR_COMPETITOR_NOT_FOUND, "竞品不存在", 404)
+        raise BusinessError(ERR_COMPETITOR_NOT_FOUND, "竞品不存在或已被删除，请刷新列表后重试", 404)
     return competitor
 
 
 async def _hard_delete_competitor(db: AsyncSession, competitor: Competitor) -> None:
-    """彻底删除一个竞品：级联删监控源，按其归属删事件/快照，并清存储目录。
+    """彻底删除一个竞品：级联删监控源，按其归属删事件/快照/趋势/已读标记，并清存储目录。
 
     抓取日志（crawl_logs）不含外键、属"历史现场"，按设计保留，不在此清理。
     """
     storage_folder = Path(settings.storage_dir) / str(competitor.id)
+    # 已读标记依赖事件，先清标记再清事件本身（SQLite 默认不开外键级联，需显式删）
+    await db.execute(
+        delete(EventRead).where(
+            EventRead.event_id.in_(
+                select(IntelligenceEvent.id).where(
+                    IntelligenceEvent.competitor_id == competitor.id
+                )
+            )
+        )
+    )
+    # 趋势分析按竞品维度聚合，无外键级联，硬删时须显式清除，避免指向已删竞品的孤儿记录
+    await db.execute(
+        delete(TrendInsight).where(TrendInsight.competitor_id == competitor.id)
+    )
     await db.execute(
         delete(IntelligenceEvent).where(IntelligenceEvent.competitor_id == competitor.id)
     )
@@ -277,7 +294,7 @@ def _build_source(
     cfg = get_source_config(item.source_type)
     url = item.url or fallback_url
     if not url:
-        raise BusinessError(ERR_INVALID_SOURCE, "监控页面缺少可用的网址", 400)
+        raise BusinessError(ERR_INVALID_SOURCE, "监控页面缺少可用的网址，请为要监控的页面填写地址", 400)
     return MonitorSource(
         competitor_id=competitor_id,
         source_type=item.source_type,
@@ -307,7 +324,7 @@ def _sync_sources(competitor: Competitor, incoming: list[MonitorSourceCreate]) -
         cfg = get_source_config(source_type)
         url = item.url or competitor.official_url or ""
         if not url:
-            raise BusinessError(ERR_INVALID_SOURCE, "监控页面缺少可用的网址", 400)
+            raise BusinessError(ERR_INVALID_SOURCE, "监控页面缺少可用的网址，请为要监控的页面填写地址", 400)
         source = existing.get(source_type)
         if source is None:
             competitor.sources.append(
@@ -318,13 +335,13 @@ def _sync_sources(competitor: Competitor, incoming: list[MonitorSourceCreate]) -
         source.url = url
         source.render_mode = cfg.render
         source.interval_minutes = item.interval_minutes or cfg.default_interval_minutes
-        # 用户显式重新提交了这个页面 → 视为恢复监控：
-        # 重新启用并清零失败计数，否则"连续失败自动停用"后永远无法复活。
-        if not source.enabled:
-            source.enabled = True
-            source.fail_count = 0
-            source.last_status = None
-            source.last_error = None
+        # 用户显式重新提交了这个页面 → 视为已确认配置并恢复监控：
+        # 清空上次抓取失败记录（用户重新编辑并验证过地址），重新启用并清零失败计数。
+        # 否则"URL 已可达但上次抓取失败"的源在保存后仍残留旧错误，编辑弹窗会继续显示不通过。
+        source.enabled = True
+        source.fail_count = 0
+        source.last_status = None
+        source.last_error = None
 
 
 @router.post("", response_model=CompetitorOut, status_code=status.HTTP_201_CREATED)
@@ -427,11 +444,30 @@ async def restore_competitor(
     """从回收站恢复：清除删除标记，竞品与其全部历史数据重新可用。"""
     competitor = await _get_any_owned(db, competitor_id, current_user)
     if competitor.deleted_at is None:
-        raise BusinessError(ERR_COMPETITOR_NOT_FOUND, "该竞品不在回收站中", 400)
+        raise BusinessError(ERR_COMPETITOR_NOT_FOUND, "该竞品不在回收站中，请刷新后重试", 400)
     competitor.deleted_at = None
     await db.commit()
     result = await db.execute(select(Competitor).where(Competitor.id == competitor.id))
     return result.scalar_one()
+
+
+@router.delete("/trash", status_code=status.HTTP_204_NO_CONTENT)
+async def purge_all_trash(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """清空回收站：彻底删除当前用户回收站中的全部竞品（事件/快照/监控源一并清除）。
+
+    抓取日志按设计保留（历史现场），不受此影响。
+    """
+    await _purge_expired(db)
+    result = await db.execute(
+        select(Competitor).where(
+            Competitor.user_id == current_user.id, Competitor.deleted_at.isnot(None)
+        )
+    )
+    for competitor in result.scalars().all():
+        await _hard_delete_competitor(db, competitor)
 
 
 @router.delete("/trash/{competitor_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -446,7 +482,7 @@ async def purge_competitor(
     """
     competitor = await _get_any_owned(db, competitor_id, current_user)
     if competitor.deleted_at is None:
-        raise BusinessError(ERR_COMPETITOR_NOT_FOUND, "该竞品不在回收站中", 400)
+        raise BusinessError(ERR_COMPETITOR_NOT_FOUND, "该竞品不在回收站中，请刷新后重试", 400)
     await _hard_delete_competitor(db, competitor)
 
 
@@ -469,6 +505,18 @@ async def competitor_favicon(
     return FaviconOut(logo_url=await resolve_favicon(domain))
 
 
+@router.get("/crawl-status", response_model=CrawlStatusOut)
+async def crawl_status(
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """当前用户正在抓取中的竞品 id 列表。
+
+    抓取状态在后端进程内实时登记（手动/定时共用），前端刷新页面后据此
+    恢复「抓取中」按钮，避免刷新后误以为任务已结束而重复触发。
+    """
+    return CrawlStatusOut(competitor_ids=active_crawl_ids(current_user.id))
+
+
 @router.get("/{competitor_id}", response_model=CompetitorOut)
 async def get_competitor(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -488,9 +536,19 @@ async def update_competitor(
     """局部更新：只改请求里实际传了的字段；sources 传了就整份对齐监控源。"""
     competitor = await _get_owned(db, competitor_id, current_user)
 
+    # 记录原始官网地址，用于判断是否发生了变更（决定是否让旧图标失效）
+    original_url = competitor.official_url
+
     # exclude_unset=True 是关键：没传的字段不出现在字典里，不会被覆盖成 None
     for key, value in payload.model_dump(exclude_unset=True, exclude={"sources"}).items():
         setattr(competitor, key, value)
+
+    # 官网地址变更：旧图标来自旧域名，若不失效会一直显示上一个网站的图标
+    # （analyzer 抓取时有 `if competitor.logo_url: return` 守卫，旧值会卡死不再重解析）。
+    # 改完立即用新域名去共享图标库复用：命中即填上；未命中则留空，等下次抓取或手动「重新获取」。
+    if payload.official_url is not None and payload.official_url != original_url:
+        competitor.logo_url = ""
+        await icon_library.apply_icon_for_competitor(db, competitor)
 
     if payload.sources is not None:
         # 空数组等同于"至少盯住官网首页"，与新增时的兜底口径保持一致

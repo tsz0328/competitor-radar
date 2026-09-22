@@ -4,8 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox, ElNotification } from "element-plus";
 import { useCompetitorStore } from "@/stores/competitor";
 import type { CompetitorItem, CrawlResult } from "@/types/competitor";
-import { purgeCompetitor } from "@/api/competitor";
-import CompetitorFormDialog from "@/components/CompetitorFormDialog.vue";
+import { fetchCrawlStatus } from "@/api/competitor";
 import CompetitorLogo from "@/components/CompetitorLogo.vue";
 import {
   Search,
@@ -59,7 +58,6 @@ const keyword = ref("");
 const statusFilter = ref("");
 const categoryFilter = ref("");
 const viewMode = ref<"list" | "grid">("list");
-const dialogVisible = ref(false);
 
 // 操作列自适应：按内容（4 个控件）实际宽度动态设置列宽，避免写死或过宽
 const tableRef = ref();
@@ -85,9 +83,6 @@ function fitActionColumn() {
   if (w > 0) actionColWidth.value = Math.ceil(w) + 28;
 }
 
-const editingCompetitor = ref<CompetitorItem | null>(null);
-// 正在抓取的竞品 id：用于按钮 loading，并阻止并发抓取
-const crawlingId = ref<number | null>(null);
 const page = ref(1);
 const pageSize = ref(10);
 
@@ -96,7 +91,20 @@ onMounted(async () => {
   await store.loadCompetitors();
   fitActionColumn();
   syncFromQuery();
+  restoreCrawlingState();
 });
+
+/** 刷新/重进页面后，向后端查询是否还有抓取在跑，恢复按钮的「抓取中」状态 */
+async function restoreCrawlingState() {
+  try {
+    const status = await fetchCrawlStatus();
+    if (status.competitorIds.length && !store.crawlingId) {
+      store.crawlingId = status.competitorIds[0];
+    }
+  } catch {
+    // 状态查询失败不阻塞页面：按钮按空闲态展示即可
+  }
+}
 
 // 从其它页面带 query 跳回来（如情报中心点的竞品名）→ 重新定位/过滤
 watch(
@@ -177,14 +185,19 @@ function displayDomain(domain: string) {
   return host || "—";
 }
 
+/** 域名补全协议：没有协议头就默认 https，供官网链接跳转使用 */
+function toHttps(domain: string): string {
+  const value = (domain || "").trim();
+  if (!value) return "";
+  return /^https?:\/\//i.test(value) ? value : `https://${value}`;
+}
+
 function openCreate() {
-  editingCompetitor.value = null;
-  dialogVisible.value = true;
+  store.openForm(null);
 }
 
 function openEdit(item: CompetitorItem) {
-  editingCompetitor.value = item;
-  dialogVisible.value = true;
+  store.openForm(item);
 }
 
 /** 从「最近变化」钻取到该竞品的全部情报 */
@@ -198,7 +211,7 @@ function clampPage() {
   if (page.value > maxPage) page.value = maxPage;
 }
 
-/** 删除竞品：先弹「移到回收站 / 永久删除 / 取消」三选一，而不是直接硬删 */
+/** 删除竞品：弹确认框，删除会移入回收站（软删），30 天内可在「回收站」恢复 */
 const deleteTarget = ref<CompetitorItem | null>(null);
 const deleteDialogVisible = ref(false);
 
@@ -207,21 +220,12 @@ function handleDelete(item: CompetitorItem) {
   deleteDialogVisible.value = true;
 }
 
-async function confirmMoveToTrash() {
+async function confirmDelete() {
   const item = deleteTarget.value;
   if (!item) return;
   deleteDialogVisible.value = false;
   await store.removeCompetitor(item.id);
   ElMessage.success(`已将「${item.name}」移入回收站，30 天内可在「回收站」恢复`);
-  clampPage();
-}
-
-async function confirmPermanentDelete() {
-  const item = deleteTarget.value;
-  if (!item) return;
-  deleteDialogVisible.value = false;
-  await purgeCompetitor(item.id);
-  ElMessage.success(`已永久删除「${item.name}」及其全部监控数据`);
   clampPage();
 }
 
@@ -270,15 +274,15 @@ function reportCrawlResult(item: CompetitorItem, result: CrawlResult) {
 }
 
 async function handleCrawl(item: CompetitorItem) {
-  if (crawlingId.value) return; // 同时只跑一个抓取任务，避免重复请求目标站点
-  crawlingId.value = item.id;
+  if (store.crawlingId) return; // 同时只跑一个抓取任务，避免重复请求目标站点
+  store.crawlingId = item.id;
   try {
     const result = await store.runCrawl(item.id);
     reportCrawlResult(item, result);
   } catch {
     // 失败提示已由 request.ts 拦截器统一弹出，这里只需复位状态
   } finally {
-    crawlingId.value = null;
+    store.crawlingId = null;
   }
 }
 
@@ -289,8 +293,8 @@ function autoDisabledCount(item: CompetitorItem): number {
 
 /** 「重新启用」：复活被自动停用的监控源，并立即抓取一次验证是否恢复 */
 async function handleRevive(item: CompetitorItem) {
-  if (crawlingId.value) return; // 与抓取共用并发锁，避免重复请求目标站点
-  crawlingId.value = item.id;
+  if (store.crawlingId) return; // 与抓取共用并发锁，避免重复请求目标站点
+  store.crawlingId = item.id;
   try {
     await store.reviveSources(item.id);
     const result = await store.runCrawl(item.id);
@@ -299,7 +303,7 @@ async function handleRevive(item: CompetitorItem) {
     // HTTP 错误已由 request.ts 拦截器统一弹出；这里兜底打印，避免代码类异常被静默吞掉
     console.error("重新启用失败", err);
   } finally {
-    crawlingId.value = null;
+    store.crawlingId = null;
   }
 }
 </script>
@@ -415,7 +419,15 @@ async function handleRevive(item: CompetitorItem) {
                   >
                 </div>
                 <div class="competitor-domain">
-                  {{ displayDomain(row.domain) }}
+                  <a
+                    v-if="row.domain"
+                    class="competitor-domain-link"
+                    :href="toHttps(row.domain)"
+                    target="_blank"
+                    rel="noopener"
+                    @click.stop
+                  >{{ displayDomain(row.domain) }}</a>
+                  <template v-else>—</template>
                 </div>
               </div>
             </div>
@@ -499,8 +511,8 @@ async function handleRevive(item: CompetitorItem) {
                   link
                   :type="autoDisabledCount(row) > 0 ? 'warning' : 'primary'"
                   :icon="Refresh"
-                  :loading="crawlingId === row.id"
-                  :disabled="crawlingId !== null && crawlingId !== row.id"
+                  :loading="store.crawlingId === row.id"
+                  :disabled="store.crawlingId !== null && store.crawlingId !== row.id"
                   @click="
                     autoDisabledCount(row) > 0
                       ? handleRevive(row)
@@ -606,8 +618,8 @@ async function handleRevive(item: CompetitorItem) {
                   link
                   :type="autoDisabledCount(item) > 0 ? 'warning' : 'primary'"
                   :icon="Refresh"
-                  :loading="crawlingId === item.id"
-                  :disabled="crawlingId !== null && crawlingId !== item.id"
+                  :loading="store.crawlingId === item.id"
+                  :disabled="store.crawlingId !== null && store.crawlingId !== item.id"
                   @click="
                     autoDisabledCount(item) > 0
                       ? handleRevive(item)
@@ -658,17 +670,11 @@ async function handleRevive(item: CompetitorItem) {
     </div>
     </template>
 
-    <!-- 新增 / 编辑竞品弹窗 -->
-    <CompetitorFormDialog
-      v-model="dialogVisible"
-      :competitor="editingCompetitor"
-    />
-
-    <!-- 删除竞品：三选一（移到回收站 / 永久删除 / 取消） -->
+    <!-- 删除竞品：确认后移入回收站（软删），不做「永久删除」选择 -->
     <el-dialog
       v-model="deleteDialogVisible"
       title="删除竞品"
-      width="min(460px, 92vw)"
+      width="min(420px, 92vw)"
       align-center
       :close-on-click-modal="false"
     >
@@ -678,21 +684,14 @@ async function handleRevive(item: CompetitorItem) {
           <strong>「{{ deleteTarget?.name }}」</strong>
           吗？
         </p>
-        <ul class="delete-options">
-          <li>
-            <b>移到回收站</b
-            >：竞品与其监控源、历史快照、情报事件全部保留，30 天内可在「回收站」恢复。
-          </li>
-          <li>
-            <b>永久删除</b
-            >：连同该竞品的全部监控记录、情报事件、历史快照一并清除，<em>不可恢复</em>。
-          </li>
-        </ul>
+        <p class="delete-tip">
+          删除后该竞品将移入回收站，其监控源、历史快照、情报事件全部保留，30
+          天内可在「回收站」恢复。
+        </p>
       </div>
       <template #footer>
         <el-button @click="deleteDialogVisible = false">取消</el-button>
-        <el-button type="danger" @click="confirmPermanentDelete">永久删除</el-button>
-        <el-button type="primary" @click="confirmMoveToTrash">移到回收站</el-button>
+        <el-button type="primary" @click="confirmDelete">确认删除</el-button>
       </template>
     </el-dialog>
   </div>
@@ -781,6 +780,14 @@ async function handleRevive(item: CompetitorItem) {
 .competitor-domain {
   font-size: 0.8vmax;
   color: var(--app-text-color-placeholder);
+}
+.competitor-domain-link {
+  color: var(--el-color-primary);
+  text-decoration: underline;
+  transition: color 0.2s;
+}
+.competitor-domain-link:hover {
+  color: var(--el-color-primary-light-3);
 }
 
 /* 分类标签颜色（与 categoryType 的四种取值一一对应） */
@@ -1005,21 +1012,8 @@ async function handleRevive(item: CompetitorItem) {
   margin: 0 0 0.8vh;
   line-height: 1.7;
 }
-.delete-options {
-  margin: 0;
-  padding-left: 1.2em;
+.delete-tip {
   color: var(--app-text-color-secondary);
   font-size: 0.88vmax;
-  line-height: 1.7;
-}
-.delete-options li {
-  margin-bottom: 0.4vh;
-}
-.delete-options b {
-  color: var(--app-text-color-primary);
-}
-.delete-options em {
-  color: var(--el-color-danger);
-  font-style: normal;
 }
 </style>

@@ -45,6 +45,13 @@ export function generateReport(
   );
 }
 
+/** 查询当前用户是否正在生成周报/月报（刷新后恢复「生成中」按钮状态） */
+export function fetchReportGenerateStatus(): Promise<{ generating: string | null }> {
+  return request.get<unknown, { generating: string | null }>(
+    "/api/reports/generate-status",
+  );
+}
+
 /** 删除一份周报/月报：移入回收站（保留期内可恢复） */
 export function deleteReport(id: number): Promise<{ ok: boolean }> {
   return request.delete<unknown, { ok: boolean }>(`/api/reports/${id}`);

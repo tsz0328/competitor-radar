@@ -7,10 +7,17 @@
 """
 from datetime import datetime, timezone
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 from app.core.source_registry import SourceType
 from app.schemas.competitor import CompetitorOut
 from app.schemas.event import EventRecordOut
-from app.services.favicon import pick_icon_from_html
+from app.services.favicon import (
+    _probe,
+    _registrable_domain,
+    _same_domain,
+    pick_icon_from_html,
+)
 
 
 class TestPickIconFromHtml:
@@ -109,3 +116,70 @@ class TestCompetitorLogoFallback:
 def test_source_type_constant_used_by_logo_capture() -> None:
     """图标只在抓官网首页时记录，这里钉住那个判断用的常量。"""
     assert SourceType.HOMEPAGE == "homepage"
+
+
+class TestSameDomain:
+    def test_same_registrable_domain_ignores_subdomain_and_www(self) -> None:
+        assert _same_domain("example.com", "www.example.com")
+        assert _same_domain("www.example.com", "a.b.example.com")
+        assert _same_domain("http://example.com/", "https://www.example.com/pricing")
+
+    def test_different_registrable_domain_detected(self) -> None:
+        # linear.com 已被 Analog Devices 收购，跳转到 analog.com —— 视为不同域
+        assert not _same_domain("linear.com", "www.analog.com")
+        assert not _same_domain("doubao.com", "analog.com")
+
+    def test_registrable_domain_extraction(self) -> None:
+        assert _registrable_domain("www.example.com") == "example.com"
+        assert _registrable_domain("a.b.example.com") == "example.com"
+        assert _registrable_domain("example.com") == "example.com"
+
+
+class TestProbeRejectsCrossDomainRedirect:
+    @patch("app.services.favicon.httpx.AsyncClient")
+    async def test_returns_none_on_cross_domain_redirect(self, client_cls: MagicMock) -> None:
+        # linear.com 跳转到 analog.com（域名被收购）→ 应放弃解析，不返回对方图标
+        redirect = MagicMock()
+        redirect.status_code = 200
+        redirect.headers = {"content-type": "text/html; charset=utf-8"}
+        redirect.text = '<link rel="icon" href="/media/favicon/adi-icon.png">'
+        redirect.url = "https://www.analog.com/"
+
+        instance = client_cls.return_value.__aenter__.return_value
+        instance.get = AsyncMock(return_value=redirect)
+
+        with patch(
+            "app.services.favicon.validate_remote_url",
+            new=AsyncMock(return_value=MagicMock(ok=True)),
+        ):
+            result = await _probe("linear.com")
+        assert result is None
+
+    @patch("app.services.favicon.httpx.AsyncClient")
+    async def test_follows_same_domain_www_redirect(self, client_cls: MagicMock) -> None:
+        # example.com → www.example.com 是同源跳转，应继续解析并拿到图标
+        page = MagicMock()
+        page.status_code = 200
+        page.headers = {"content-type": "text/html; charset=utf-8"}
+        page.text = '<link rel="apple-touch-icon" href="/touch.png">'
+        page.url = "https://www.example.com/"
+
+        image = MagicMock()
+        image.status_code = 200
+        image.headers = {"content-type": "image/png"}
+
+        instance = client_cls.return_value.__aenter__.return_value
+
+        async def _fake_get(url: str, **_kwargs):
+            if url == "https://example.com/":
+                return page
+            return image
+
+        instance.get = AsyncMock(side_effect=_fake_get)
+
+        with patch(
+            "app.services.favicon.validate_remote_url",
+            new=AsyncMock(return_value=MagicMock(ok=True)),
+        ):
+            result = await _probe("example.com")
+        assert result == "https://www.example.com/touch.png"

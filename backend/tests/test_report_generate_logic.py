@@ -567,3 +567,23 @@ async def test_scheduler_lock_held_skips(session, scheduler_env):
 
     created = await scheduler_env.generate_weekly_reports()
     assert created == 0  # 没抢到锁，直接跳过
+
+
+async def test_scheduler_notifies_owner_only(session, scheduler_env):
+    """报告生成完成的通知只发给**有竞品、且绑了邮箱**的账号本人。
+
+    回归（2026-09-22）：原先统一发一句「已为 N 个账号生成本周竞品周报」给
+    NOTIFY_RECIPIENTS（运维/管理员邮箱），用户自己的报告通知进了别人的信箱。
+    """
+    owner = await _make_user(session, "sch_notify_owner")
+    await _make_competitor(session, owner.id)
+    # 第二个账号：没绑邮箱 → 不该收到任何邮件
+    session.add(User(username="sch_notify_nomail", email=None, password_hash="h"))
+    await session.commit()
+
+    created = await scheduler_env.generate_weekly_reports()
+    assert created == 2  # 两个账号都生成了，但只有一个该收信
+
+    calls = scheduler_env.notifier.notify.call_args_list
+    assert len(calls) == 1
+    assert calls[0].kwargs["to"] == [owner.email]

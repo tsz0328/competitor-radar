@@ -1,5 +1,7 @@
 # 汇总导出：确保 Base 与全部模型被 import，create_all 才能"看到"所有表
 from app.models.base import Base
+from app.models.admin_audit import AdminAuditLog
+from app.models.announcement import Announcement
 from app.models.competitor import Competitor
 from app.models.crawl_log import CrawlLog
 from app.models.event import IntelligenceEvent
@@ -16,6 +18,8 @@ from app.models.weekly_report import WeeklyReport
 
 __all__ = [
     "Base",
+    "AdminAuditLog",
+    "Announcement",
     "AppSetting",
     "Competitor",
     "CrawlLog",

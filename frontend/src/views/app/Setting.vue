@@ -21,7 +21,6 @@ import {
   Setting as SettingIcon,
   User as UserIcon,
   View,
-  Message,
 } from "@element-plus/icons-vue";
 import {
   activateLlmProvider,
@@ -50,7 +49,6 @@ import {
   type UserProfile,
 } from "@/api/user";
 import { sendEmailCode } from "@/api/auth";
-import { getSystemSettings, updateSystemSettings } from "@/api/admin";
 import UserAvatar from "@/components/UserAvatar.vue";
 import { useAuthStore } from "@/stores/auth";
 import { fileToSquareDataUrl } from "@/utils/image";
@@ -79,8 +77,6 @@ import { usePreferencesStore } from "@/stores/preferences";
 import { VueDraggable } from "vue-draggable-plus";
 
 const llmStore = useLlmStore();
-// 注意：account 区块在下方才声明 authStore，但左上方分类计算属性（categories）
-// 在 setup 早期就会被 applyTabFromQuery 触发，因此这里先初始化 authStore 避免 TDZ。
 const authStore = useAuthStore();
 
 /** 设置分类：左侧导航，右侧渲染对应分类内容，便于后续扩展更多分类 */
@@ -99,26 +95,15 @@ const baseCategories = [
     icon: UserIcon,
   },
 ];
-type CategoryKey = "ai" | "preferences" | "account" | "system";
-// 管理员额外看到「系统设置」（发件邮箱等全局配置）
-const categories = computed(() => {
-  const list = [...baseCategories];
-  if (authStore.user?.is_admin) {
-    list.push({
-      key: "system",
-      label: "系统设置",
-      desc: "发件邮箱等全局配置",
-      icon: Message,
-    });
-  }
-  return list;
-});
+type CategoryKey = "ai" | "preferences" | "account";
+// 系统设置（SMTP）已迁出到管理端独立页 AdminSettings，这里不再按角色动态追加分类
+const categories = baseCategories;
 const activeCategory = ref<string>("ai");
 
 // 支持从侧边栏「用户中心」直接跳过来（/app/setting?tab=account）
 const route = useRoute();
 function applyTabFromQuery(tab: unknown) {
-  const keys = categories.value.map((c) => c.key);
+  const keys = categories.map((c) => c.key);
   if (typeof tab === "string" && (keys as string[]).includes(tab)) {
     activeCategory.value = tab as CategoryKey;
   }
@@ -282,6 +267,21 @@ function normalizeUrl(baseUrl: string) {
 /** 供应商地址必须是 http(s) 绝对地址（与后端校验一致，提前拦掉明显错的输入） */
 function isValidBaseUrl(url: string) {
   return /^https?:\/\/\S+$/i.test(url.trim());
+}
+
+/**
+ * 明显不支持对话补全的模型（文生图/图生图/嵌入/语音/重排/审核等）的 id 特征，
+ * 与后端 services/settings.py 的 _NON_CHAT_MODEL_PATTERNS 保持一致。
+ * 仅用于手填时的软提示，不拦截（避免误杀私有部署的怪异命名模型）。
+ */
+const NON_CHAT_MODEL_HINTS = [
+  "dall-e", "gpt-image", "wanx", "cogview", "seedream", "stable-diffusion",
+  "sdxl", "flux", "embedding", "bge-", "tts", "whisper", "transcribe",
+  "realtime", "rerank", "moderation", "video", "sora", "kling",
+];
+function looksNonChatModel(model: string): boolean {
+  const m = (model || "").trim().toLowerCase();
+  return NON_CHAT_MODEL_HINTS.some((h) => m.includes(h));
 }
 
 /**
@@ -667,7 +667,15 @@ async function fetchModels() {
       modelsDirty.value = true;
       // 记住这次结果（切换预设/改地址可复用）；是否落库由「保存」决定
       cacheModelsOf(dlg.baseUrl, merged);
-      ElMessage.success(`已获取 ${res.models.length} 个模型`);
+      const filtered = res.filteredModels ?? [];
+      if (filtered.length > 0) {
+        const sample = filtered.slice(0, 3).join("、");
+        ElMessage.success(
+          `已获取 ${res.models.length} 个对话模型，已过滤 ${filtered.length} 个非对话模型（${sample}${filtered.length > 3 ? " 等" : ""}）`,
+        );
+      } else {
+        ElMessage.success(`已获取 ${res.models.length} 个模型`);
+      }
       // 当前模型不在列表里也保留（allow-create 允许手填），仅提示
       if (dlg.model && !res.models.includes(dlg.model)) {
         ElMessage.info(`当前模型「${dlg.model}」不在列表内，可继续手动选用`);
@@ -725,6 +733,12 @@ async function saveDialog() {
   if (!editingId.value && !dlg.apiKey.trim()) {
     ElMessage.warning("请先填写 API Key");
     return;
+  }
+  // 手填命中非对话模型特征：软提示不拦截（「测试连接」会给出上游的确切报错）
+  if (looksNonChatModel(dlg.model)) {
+    ElMessage.warning(
+      `「${dlg.model.trim()}」疑似文生图/嵌入等非对话模型，本系统分析需要对话补全模型，保存后可能无法正常使用`,
+    );
   }
   dialogSaving.value = true;
   try {
@@ -803,6 +817,7 @@ async function testProvider(p: LlmProvider) {
     // 错误提示由 request.ts 统一弹出
   } finally {
     testingId.value = null;
+    await refreshAfterChange(); // 测试结果落库后刷新「通过 / 不通过」标签
   }
 }
 
@@ -1118,63 +1133,6 @@ async function cancelEditProfile() {
   await loadAccount();
 }
 
-// ---- 系统设置（仅管理员可见）：发件邮箱 ----
-// ---- 系统设置（仅管理员可见）：完整 SMTP 发件配置 ----
-const sysForm = reactive({
-  smtp_host: "",
-  smtp_port: 465 as number | null,
-  smtp_username: "",
-  smtp_password: "",
-  smtp_sender: "",
-});
-const sysPasswordSet = ref(false);
-const sysEditing = ref(false);
-const sysSaving = ref(false);
-async function loadSystem() {
-  const s = await getSystemSettings();
-  sysForm.smtp_host = s.smtp_host;
-  sysForm.smtp_port = s.smtp_port || 465;
-  sysForm.smtp_username = s.smtp_username;
-  sysForm.smtp_sender = s.smtp_sender;
-  sysPasswordSet.value = s.smtp_password_set;
-  // 授权码出于安全不回传，前端始终留空（"留空=不修改"）
-  sysForm.smtp_password = "";
-}
-/** 只读展示用的授权码：已设置就显示打码，否则"未设置" */
-const sysPasswordMasked = computed(() =>
-  sysPasswordSet.value ? "*".repeat(12) : "未设置",
-);
-function cancelSystem() {
-  sysEditing.value = false;
-  sysForm.smtp_password = "";
-  loadSystem();
-}
-async function saveSystem() {
-  sysSaving.value = true;
-  try {
-    const s = await updateSystemSettings({
-      smtp_host: sysForm.smtp_host,
-      smtp_port: sysForm.smtp_port ?? 465,
-      smtp_username: sysForm.smtp_username,
-      smtp_sender: sysForm.smtp_sender,
-      // 只有用户真填了授权码才传；空串=不改动
-      smtp_password: sysForm.smtp_password,
-    });
-    sysForm.smtp_host = s.smtp_host;
-    sysForm.smtp_port = s.smtp_port || 465;
-    sysForm.smtp_username = s.smtp_username;
-    sysForm.smtp_sender = s.smtp_sender;
-    sysPasswordSet.value = s.smtp_password_set;
-    sysForm.smtp_password = "";
-    sysEditing.value = false;
-    ElMessage.success("系统设置已保存");
-  } catch {
-    // 错误提示由 request.ts 统一弹出
-  } finally {
-    sysSaving.value = false;
-  }
-}
-
 onMounted(async () => {
   // 先把账号偏好读回来，再允许回写
   await preferences.ensureLoaded();
@@ -1182,9 +1140,6 @@ onMounted(async () => {
   load();
   loadTypes();
   loadAccount();
-  if (authStore.user?.is_admin) {
-    loadSystem();
-  }
 });
 </script>
 
@@ -1303,6 +1258,25 @@ onMounted(async () => {
                   <span class="provider-name">{{ p.name || "自定义" }}</span>
                   <el-tag v-if="p.isActive" type="success" size="small" effect="light">
                     使用中
+                  </el-tag>
+                  <el-tag
+                    v-if="p.testStatus === 'ok'"
+                    type="success"
+                    size="small"
+                    effect="plain"
+                  >
+                    通过
+                  </el-tag>
+                  <el-tag
+                    v-else-if="p.testStatus === 'fail'"
+                    type="danger"
+                    size="small"
+                    effect="plain"
+                  >
+                    不通过
+                  </el-tag>
+                  <el-tag v-else type="info" size="small" effect="plain">
+                    未测试
                   </el-tag>
                 </div>
                 <div class="provider-meta">
@@ -1620,106 +1594,6 @@ onMounted(async () => {
               </div>
             </template>
           </div>
-        </section>
-
-        <section v-show="activeCategory === 'system'" class="panel">
-          <div class="panel-head">
-            <div class="panel-title-wrap">
-              <span class="panel-icon"><el-icon><Message /></el-icon></span>
-              <div>
-                <div class="panel-title">系统设置</div>
-                <div class="panel-desc">SMTP 发件配置（仅管理员可改）</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 只读展示：默认显示当前配置，点「修改」才变输入框 -->
-          <div v-if="!sysEditing" class="account-info">
-            <div class="info-item">
-              <span class="info-label">SMTP 服务器</span>
-              <span class="info-value">{{ sysForm.smtp_host || "未设置" }}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">端口</span>
-              <span class="info-value">{{ sysForm.smtp_port || "未设置" }}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">用户名</span>
-              <span class="info-value">{{ sysForm.smtp_username || "未设置" }}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">授权码</span>
-              <span class="info-value">{{ sysPasswordMasked }}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">发件邮箱</span>
-              <span class="info-value">{{ sysForm.smtp_sender || "未设置" }}</span>
-            </div>
-          </div>
-          <div v-if="!sysEditing" class="actions">
-            <el-button type="primary" @click="sysEditing = true">修改</el-button>
-          </div>
-
-          <!-- 编辑态：完整 SMTP 表单 -->
-          <template v-if="sysEditing">
-            <el-form label-position="top" autocomplete="off" @submit.prevent>
-              <el-form-item label="SMTP 服务器">
-                <el-input
-                  v-model="sysForm.smtp_host"
-                  maxlength="200"
-                  clearable
-                  placeholder="如 smtp.qq.com；留空则回退 .env 的 SMTP_HOST"
-                />
-              </el-form-item>
-              <el-form-item label="端口">
-                <el-input
-                  v-model.number="sysForm.smtp_port"
-                  type="number"
-                  placeholder="465（SSL）；587 多为 STARTTLS"
-                />
-              </el-form-item>
-              <el-form-item label="用户名（登录账号）">
-                <el-input
-                  v-model="sysForm.smtp_username"
-                  name="smtp-username"
-                  autocomplete="off"
-                  maxlength="200"
-                  clearable
-                  placeholder="通常是邮箱全名；留空则回退 .env 的 SMTP_USERNAME"
-                />
-              </el-form-item>
-              <el-form-item label="授权码">
-                <!-- new-password：明确告诉浏览器这是"新密码"字段，不要预填已保存的站点登录密码 -->
-                <el-input
-                  v-model="sysForm.smtp_password"
-                  name="smtp-authcode"
-                  autocomplete="new-password"
-                  type="password"
-                  show-password
-                  maxlength="200"
-                  placeholder="留空表示不修改；换账号时填新账号的授权码"
-                />
-              </el-form-item>
-              <el-form-item label="发件邮箱（SMTP From）">
-                <el-input
-                  v-model="sysForm.smtp_sender"
-                  maxlength="100"
-                  clearable
-                  placeholder="如 no-reply@example.com；留空则回退 .env 的 SMTP_SENDER"
-                />
-              </el-form-item>
-            </el-form>
-            <div class="field-hint">
-              服务器 / 端口 / 用户名 / 发件邮箱留空表示清掉覆盖、回退 .env；授权码留空表示不修改（出于安全不回传明文）。
-              界面配置优先于 .env，保存后立即生效，无需重启。用户名与授权码必须成套，只换其一会导致登录失败、邮件发不出。
-            </div>
-            <div class="actions">
-              <el-button type="primary" :loading="sysSaving" @click="saveSystem">
-                保存
-              </el-button>
-              <el-button :disabled="sysSaving" @click="cancelSystem">取消</el-button>
-            </div>
-          </template>
         </section>
       </div>
     </div>
@@ -2146,6 +2020,7 @@ onMounted(async () => {
 }
 .provider-top {
   display: flex;
+  flex-wrap: wrap; /* 「使用中/通过/不通过」多个标签空间不足时换行，不溢出 */
   align-items: center;
   gap: 0.6vw;
   margin-bottom: 0.6vh;

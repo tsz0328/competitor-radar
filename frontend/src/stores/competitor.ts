@@ -14,9 +14,47 @@ import {
   updateCompetitor,
 } from "@/api/competitor";
 
+/**
+ * 竞品新增/编辑弹窗会话：每个会话=一个弹窗实例（可见 或 后台运行中）。
+ * 会话放在 store 并挂载在 AppLayout 全局层，「后台进行」隐藏弹窗后任务不中断，
+ * 切换页面后右下角悬浮窗仍可点开恢复；支持多个会话同时后台运行。
+ */
+export interface CompetitorFormSession {
+  id: number;
+  visible: boolean;
+  /** 非空=编辑模式（传入竞品），空=新增 */
+  competitor: CompetitorItem | null;
+  /** true=弹窗已隐藏、任务仍在后台运行（会话保留）；false=普通开关状态 */
+  background: boolean;
+}
+
 export const useCompetitorStore = defineStore("competitor", () => {
   const loading = ref(false);
   const competitors = ref<CompetitorItem[]>([]);
+  /** 正在抓取中的竞品 id：放 store 而非组件，切换页面后状态不丢，按钮仍显示「抓取中」 */
+  const crawlingId = ref<number | null>(null);
+
+  let formSessionSeq = 0;
+  const formSessions = ref<CompetitorFormSession[]>([]);
+
+  /** 打开一个新的新增/编辑弹窗会话，返回会话 id */
+  function openForm(competitor: CompetitorItem | null): number {
+    const id = ++formSessionSeq;
+    formSessions.value.push({ id, visible: true, competitor, background: false });
+    return id;
+  }
+
+  /** 关闭并销毁一个会话（普通关闭或后台任务结束自动收起） */
+  function closeForm(id: number) {
+    const idx = formSessions.value.findIndex((s) => s.id === id);
+    if (idx >= 0) formSessions.value.splice(idx, 1);
+  }
+
+  /** 标记会话是否处于「后台运行」模式（AppLayout 据此决定关闭时是保留还是销毁） */
+  function setFormBackground(id: number, bg: boolean) {
+    const s = formSessions.value.find((x) => x.id === id);
+    if (s) s.background = bg;
+  }
 
   async function loadCompetitors() {
     loading.value = true;
@@ -85,6 +123,11 @@ export const useCompetitorStore = defineStore("competitor", () => {
   return {
     loading,
     competitors,
+    crawlingId,
+    formSessions,
+    openForm,
+    closeForm,
+    setFormBackground,
     loadCompetitors,
     addCompetitor,
     editCompetitor,

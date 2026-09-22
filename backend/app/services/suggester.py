@@ -2,7 +2,8 @@
 
 策略（按可靠性递减）：
 1. LLM：能处理中文品牌名、名称与域名不一致的情况（如 豆包 → doubao.com），
-   返回域名 + 分类；随后仍会**实际探活**确认域名可达。
+   返回域名 + 分类；随后仍会**实际探活**确认域名可达，并用 `_related`
+   校验落地页与名称相关，挡掉 LLM 凭记忆猜出的"可达但不相关"域名。
 2. 域名探测兜底：把名称转成候选域名（name.com / name.io / name.ai …）并发探活，
    并要求落地页与名称相关（域名含名称，或标题含名称），顺带过滤"域名出售"页。
 无 Key 或 LLM 失败时自动走 2，保证功能不依赖 LLM 可用性。
@@ -114,8 +115,13 @@ async def _probe(name: str) -> str | None:
             t.cancel()
 
 
-async def _verify_domain(domain: str) -> str | None:
+async def _verify_domain(domain: str, name: str = "") -> str | None:
     """把 LLM 给的域名规范化并实际探活，返回最终地址（跟随跳转）。
+
+    LLM（brand_profile）仅凭记忆猜域名、不联网，可能吐出一个"可达但不相关"的站点
+    （例如把品牌名直译/拼音拼成一个已注册但无关的域名）。只查 HTTP 可达性会误当成官网，
+    所以这里额外用 `_related` 把关：落地页须**与竞品名称相关**（域名含名称 token，或标题含名称），
+    否则拒绝，交给规则探测或用户手动填写。
 
     优先采用 www 形式（很多官网规范地址带 www，如 deepseek.com → www.deepseek.com），
     www 不通再退回裸域名，保证常见品牌也能识别。
@@ -123,9 +129,11 @@ async def _verify_domain(domain: str) -> str | None:
     domain = (domain or "").strip().lower().removeprefix("www.")
     if not _DOMAIN_RE.fullmatch(domain):
         return None
+    tokens = _tokens(name)
+    token = tokens[0] if tokens else ""
     for cand in (f"www.{domain}", domain):
         res = await crawler.fetch_html(f"https://{cand}", timeout=_short_timeout())
-        if res.ok:
+        if res.ok and _related(name, token, res.url, res.html):
             return res.url
     return None
 
@@ -146,7 +154,7 @@ async def suggest_competitor(
         if profile:
             category = profile.category or None
             if profile.domain:
-                url = await _verify_domain(profile.domain)
+                url = await _verify_domain(profile.domain, name)
                 if url:
                     return SuggestResult(url, category, "llm", f"AI 推断官网：{url}")
 
@@ -155,4 +163,20 @@ async def suggest_competitor(
         return SuggestResult(url, category, "probe", f"自动探测到官网：{url}")
     if category:
         return SuggestResult(None, category, "llm", "已推断分类，官网请手动填写")
-    return SuggestResult(None, None, "none", "未能自动识别，请手动填写")
+    # 区分识别失败的原因，让用户知道「为什么没识别出来」以及下一步怎么做
+    if not _tokens(name):
+        # 直接原因：没有可用的 AI（规则探测对中文等非 ASCII 名称用不上，只能靠 AI）
+        return SuggestResult(
+            None,
+            None,
+            "none",
+            "未能自动识别：当前没有可用的 AI 来推断官网（中文等名称无法用常见域名探测），"
+            "请手动填写官网地址",
+        )
+    return SuggestResult(
+        None,
+        None,
+        "none",
+        "未能自动识别：已尝试常见域名（如 name.com / name.cn）均无法确认是官网，"
+        "请核对名称拼写后手动填写官网地址",
+    )

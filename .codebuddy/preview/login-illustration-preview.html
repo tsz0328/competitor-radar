@@ -160,6 +160,14 @@
               <feMergeNode in="SourceGraphic"/>
             </feMerge>
           </filter>
+          <!-- 光点径向辉光：中心亮、向边缘平滑暗淡到透明，按颜色各一份 -->
+          <radialGradient id="g_4d8bff"><stop offset="0%" stop-color="#4d8bff" stop-opacity="0.95"/><stop offset="100%" stop-color="#4d8bff" stop-opacity="0"/></radialGradient>
+          <radialGradient id="g_2f88ff"><stop offset="0%" stop-color="#2f88ff" stop-opacity="0.95"/><stop offset="100%" stop-color="#2f88ff" stop-opacity="0"/></radialGradient>
+          <radialGradient id="g_2f6bff"><stop offset="0%" stop-color="#2f6bff" stop-opacity="0.95"/><stop offset="100%" stop-color="#2f6bff" stop-opacity="0"/></radialGradient>
+          <radialGradient id="g_b27bff"><stop offset="0%" stop-color="#b27bff" stop-opacity="0.95"/><stop offset="100%" stop-color="#b27bff" stop-opacity="0"/></radialGradient>
+          <radialGradient id="g_ff7a7a"><stop offset="0%" stop-color="#ff7a7a" stop-opacity="0.95"/><stop offset="100%" stop-color="#ff7a7a" stop-opacity="0"/></radialGradient>
+          <radialGradient id="g_cfd3da"><stop offset="0%" stop-color="#cfd3da" stop-opacity="0.9"/><stop offset="100%" stop-color="#cfd3da" stop-opacity="0"/></radialGradient>
+          <radialGradient id="g_b3b8c2"><stop offset="0%" stop-color="#b3b8c2" stop-opacity="0.9"/><stop offset="100%" stop-color="#b3b8c2" stop-opacity="0"/></radialGradient>
         </defs>
 
         <!-- 同心环（外淡内亮，渐变描边） -->
@@ -193,71 +201,87 @@
         <g id="sweep"></g>
 
         <!-- 竞品小光点：平时 opacity=0，被光束扫到才亮起、随后拖尾淡出 -->
-        <!-- 沿圆周每 22.5° 均匀铺开 16 个，半径交替 165/230，避免扎堆 -->
+        <!-- 每点背后垫一个同色径向辉光圆（中心亮→边缘透明）；沿圆周每 22.5° 均匀铺开 16 个 -->
         <g>
           <g class="blip" data-x="465" data-y="300" data-color="#4d8bff">
+            <circle class="glow" cx="465" cy="300" r="22" fill="url(#g_4d8bff)"/>
             <circle class="ping" cx="465" cy="300" r="7" fill="none" stroke="#4d8bff" stroke-width="2"/>
-            <circle class="dot" cx="465" cy="300" r="6.5" fill="#4d8bff" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="465" cy="300" r="5.5" fill="#cfe0ff" stroke="#fff" stroke-width="1.5"/>
           </g>
           <g class="blip" data-x="513" data-y="212" data-color="#2f88ff">
+            <circle class="glow" cx="513" cy="212" r="22" fill="url(#g_2f88ff)"/>
             <circle class="ping" cx="513" cy="212" r="7" fill="none" stroke="#2f88ff" stroke-width="2"/>
-            <circle class="dot" cx="513" cy="212" r="6.5" fill="#2f88ff" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="513" cy="212" r="5.5" fill="#cfe0ff" stroke="#fff" stroke-width="1.5"/>
           </g>
           <g class="blip" data-x="417" data-y="183" data-color="#2f6bff">
+            <circle class="glow" cx="417" cy="183" r="22" fill="url(#g_2f6bff)"/>
             <circle class="ping" cx="417" cy="183" r="7" fill="none" stroke="#2f6bff" stroke-width="2"/>
-            <circle class="dot" cx="417" cy="183" r="6.5" fill="#2f6bff" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="417" cy="183" r="5.5" fill="#cfe0ff" stroke="#fff" stroke-width="1.5"/>
           </g>
           <g class="blip" data-x="388" data-y="88" data-color="#b27bff">
+            <circle class="glow" cx="388" cy="88" r="22" fill="url(#g_b27bff)"/>
             <circle class="ping" cx="388" cy="88" r="7" fill="none" stroke="#b27bff" stroke-width="2"/>
-            <circle class="dot" cx="388" cy="88" r="6.5" fill="#b27bff" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="388" cy="88" r="5.5" fill="#e7dcff" stroke="#fff" stroke-width="1.5"/>
           </g>
           <g class="blip" data-x="300" data-y="135" data-color="#ff7a7a">
+            <circle class="glow" cx="300" cy="135" r="22" fill="url(#g_ff7a7a)"/>
             <circle class="ping" cx="300" cy="135" r="7" fill="none" stroke="#ff7a7a" stroke-width="2"/>
-            <circle class="dot" cx="300" cy="135" r="6.5" fill="#ff7a7a" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="300" cy="135" r="5.5" fill="#ffd9d9" stroke="#fff" stroke-width="1.5"/>
           </g>
           <g class="blip" data-x="212" data-y="88" data-color="#cfd3da">
+            <circle class="glow" cx="212" cy="88" r="22" fill="url(#g_cfd3da)"/>
             <circle class="ping" cx="212" cy="88" r="7" fill="none" stroke="#cfd3da" stroke-width="2"/>
-            <circle class="dot" cx="212" cy="88" r="6.5" fill="#cfd3da" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="212" cy="88" r="5.5" fill="#eef1f6" stroke="#fff" stroke-width="1.5"/>
           </g>
           <g class="blip" data-x="183" data-y="183" data-color="#b3b8c2">
+            <circle class="glow" cx="183" cy="183" r="22" fill="url(#g_b3b8c2)"/>
             <circle class="ping" cx="183" cy="183" r="7" fill="none" stroke="#b3b8c2" stroke-width="2"/>
-            <circle class="dot" cx="183" cy="183" r="6.5" fill="#b3b8c2" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="183" cy="183" r="5.5" fill="#eef1f6" stroke="#fff" stroke-width="1.5"/>
           </g>
           <g class="blip" data-x="88" data-y="212" data-color="#4d8bff">
+            <circle class="glow" cx="88" cy="212" r="22" fill="url(#g_4d8bff)"/>
             <circle class="ping" cx="88" cy="212" r="7" fill="none" stroke="#4d8bff" stroke-width="2"/>
-            <circle class="dot" cx="88" cy="212" r="6.5" fill="#4d8bff" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="88" cy="212" r="5.5" fill="#cfe0ff" stroke="#fff" stroke-width="1.5"/>
           </g>
           <g class="blip" data-x="135" data-y="300" data-color="#2f88ff">
+            <circle class="glow" cx="135" cy="300" r="22" fill="url(#g_2f88ff)"/>
             <circle class="ping" cx="135" cy="300" r="7" fill="none" stroke="#2f88ff" stroke-width="2"/>
-            <circle class="dot" cx="135" cy="300" r="6.5" fill="#2f88ff" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="135" cy="300" r="5.5" fill="#cfe0ff" stroke="#fff" stroke-width="1.5"/>
           </g>
           <g class="blip" data-x="88" data-y="388" data-color="#2f6bff">
+            <circle class="glow" cx="88" cy="388" r="22" fill="url(#g_2f6bff)"/>
             <circle class="ping" cx="88" cy="388" r="7" fill="none" stroke="#2f6bff" stroke-width="2"/>
-            <circle class="dot" cx="88" cy="388" r="6.5" fill="#2f6bff" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="88" cy="388" r="5.5" fill="#cfe0ff" stroke="#fff" stroke-width="1.5"/>
           </g>
           <g class="blip" data-x="183" data-y="417" data-color="#b27bff">
+            <circle class="glow" cx="183" cy="417" r="22" fill="url(#g_b27bff)"/>
             <circle class="ping" cx="183" cy="417" r="7" fill="none" stroke="#b27bff" stroke-width="2"/>
-            <circle class="dot" cx="183" cy="417" r="6.5" fill="#b27bff" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="183" cy="417" r="5.5" fill="#e7dcff" stroke="#fff" stroke-width="1.5"/>
           </g>
           <g class="blip" data-x="212" data-y="513" data-color="#ff7a7a">
+            <circle class="glow" cx="212" cy="513" r="22" fill="url(#g_ff7a7a)"/>
             <circle class="ping" cx="212" cy="513" r="7" fill="none" stroke="#ff7a7a" stroke-width="2"/>
-            <circle class="dot" cx="212" cy="513" r="6.5" fill="#ff7a7a" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="212" cy="513" r="5.5" fill="#ffd9d9" stroke="#fff" stroke-width="1.5"/>
           </g>
           <g class="blip" data-x="300" data-y="465" data-color="#cfd3da">
+            <circle class="glow" cx="300" cy="465" r="22" fill="url(#g_cfd3da)"/>
             <circle class="ping" cx="300" cy="465" r="7" fill="none" stroke="#cfd3da" stroke-width="2"/>
-            <circle class="dot" cx="300" cy="465" r="6.5" fill="#cfd3da" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="300" cy="465" r="5.5" fill="#eef1f6" stroke="#fff" stroke-width="1.5"/>
           </g>
           <g class="blip" data-x="388" data-y="513" data-color="#b3b8c2">
+            <circle class="glow" cx="388" cy="513" r="22" fill="url(#g_b3b8c2)"/>
             <circle class="ping" cx="388" cy="513" r="7" fill="none" stroke="#b3b8c2" stroke-width="2"/>
-            <circle class="dot" cx="388" cy="513" r="6.5" fill="#b3b8c2" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="388" cy="513" r="5.5" fill="#eef1f6" stroke="#fff" stroke-width="1.5"/>
           </g>
           <g class="blip" data-x="417" data-y="417" data-color="#4d8bff">
+            <circle class="glow" cx="417" cy="417" r="22" fill="url(#g_4d8bff)"/>
             <circle class="ping" cx="417" cy="417" r="7" fill="none" stroke="#4d8bff" stroke-width="2"/>
-            <circle class="dot" cx="417" cy="417" r="6.5" fill="#4d8bff" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="417" cy="417" r="5.5" fill="#cfe0ff" stroke="#fff" stroke-width="1.5"/>
           </g>
           <g class="blip" data-x="513" data-y="388" data-color="#2f88ff">
+            <circle class="glow" cx="513" cy="388" r="22" fill="url(#g_2f88ff)"/>
             <circle class="ping" cx="513" cy="388" r="7" fill="none" stroke="#2f88ff" stroke-width="2"/>
-            <circle class="dot" cx="513" cy="388" r="6.5" fill="#2f88ff" stroke="#fff" stroke-width="1.5"/>
+            <circle class="dot" cx="513" cy="388" r="5.5" fill="#cfe0ff" stroke="#fff" stroke-width="1.5"/>
           </g>
         </g>
 
@@ -343,7 +367,7 @@
         var x = +g.dataset.x, y = +g.dataset.y;
         var phi = Math.atan2(y - CY, x - CX) * 180 / Math.PI;
         if (phi < 0) phi += 360;
-        return { dot: g.querySelector('.dot'), ping: g.querySelector('.ping'), phi: phi };
+        return { dot: g.querySelector('.dot'), ping: g.querySelector('.ping'), glow: g.querySelector('.glow'), phi: phi };
       });
       var start = null;
       function frame(t) {
@@ -355,6 +379,7 @@
           var d = (((theta - b.phi) + 540) % 360) - 180; // 0=光束正扫过；>0=刚扫过；<0=还没到
           var op = d < 0 ? 0 : Math.max(0, 1 - d / FADE);
           b.dot.setAttribute('opacity', op);
+          b.glow.setAttribute('opacity', op);
           // 扫过瞬间是亮点，随后光环扩散并淡出（雷达 ping）
           b.ping.setAttribute('r', 7 + (1 - op) * 16);
           b.ping.setAttribute('opacity', op * 0.85);

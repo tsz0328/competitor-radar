@@ -120,6 +120,18 @@ export function purgeCompetitor(id: number): Promise<void> {
   return request.delete<unknown, void>(`/api/competitors/trash/${id}`);
 }
 
+/** 清空回收站：彻底删除当前用户回收站里的全部竞品（事件/快照/监控源一并清除） */
+export function purgeAllTrash(): Promise<void> {
+  return request.delete<unknown, void>("/api/competitors/trash");
+}
+
+/** 查询当前用户正在抓取中的竞品 id 列表（刷新后恢复「抓取中」按钮状态） */
+export function fetchCrawlStatus(): Promise<{ competitorIds: number[] }> {
+  return request.get<unknown, { competitorIds: number[] }>(
+    "/api/competitors/crawl-status",
+  );
+}
+
 /** 一键重新启用被「连续失败自动停用」的监控源，并清零失败计数 */
 
 export function reviveSources(id: number): Promise<CompetitorItem> {

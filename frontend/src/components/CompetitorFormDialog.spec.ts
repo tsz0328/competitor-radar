@@ -279,9 +279,30 @@ describe("添加竞品 - 勾选 / 取消勾选页面", () => {
     expect(vm().urls.blog).toBe("https://new.com/blog"); // 跟随新官网
     expect(vm().checkState.blog).toBe(""); // 旧通过作废
   });
+
+  it("点删除按钮（preserve=false）→ 不保留已填网址（即使已通过），重新勾选回到默认状态", async () => {
+    vi.mocked(checkSourceUrl).mockResolvedValue({ url: "", ok: true, httpStatus: 200, message: "ok" });
+    vm().form.officialUrl = "https://doubao.com";
+    const blogOpt = TYPES.find((t) => t.type === "blog")!;
+    vm().toggleType(blogOpt);
+    // 用户手填一个非默认猜测的网址并标记为已通过
+    vm().urls.blog = "https://doubao.com/my-custom-feed";
+    vm().onPageUrlInput("blog");
+    vm().checkState.blog = "ok";
+    // 点删除按钮（与行内 danger 删除按钮等价：preserve=false）
+    vm().removeType("blog", false);
+    expect(vm().selected.includes("blog")).toBe(false);
+    // 重新勾选
+    vm().toggleType(blogOpt);
+    // 默认按官网规则猜测，不复活删除前手填的网址与通过状态
+    expect(vm().urls.blog).toBe("https://doubao.com/blog"); // 默认猜测
+    expect(vm().urls.blog).not.toBe("https://doubao.com/my-custom-feed"); // 手填的不恢复
+    expect(vm().checkState.blog).toBeFalsy(); // 通过状态不复活（默认未检测）
+    expect(vm().manualUrlEdited.blog).toBeFalsy(); // 不标记为手动
+  });
 });
 
-describe("添加竞品 - 检测网址按钮（只测未检测+未通过，跳过已通过）", () => {
+describe("添加竞品 - 检测网址按钮（跳过已通过）", () => {
   it("已勾选页面网址空白 → 提示待填并中止（不发任何请求）", async () => {
     // 官网为空 → 三个默认已勾选页面都没有网址
     expect(vm().selected.length).toBeGreaterThan(0);
@@ -731,6 +752,7 @@ describe("添加竞品 - 编辑模式：不可达页可选择性移除", () => {
               url: "https://x.com/pricing",
               renderMode: "browser",
               intervalMinutes: 1440,
+              lastError: "404 Not Found", // 上次抓取失败 → 编辑回填预置「不通过」，保存时重检并允许移除
             },
           ],
         } as any,
@@ -994,6 +1016,8 @@ describe("添加竞品 - 官网不可达放行 与 批量入口", () => {
     await vm().refindOne("blog"); // 找到
     await flushPromises();
     expect(vm().refindResult.blog).toBe("found");
-    expect(wrapper.html()).toContain("已找到");
+    // 找到后不再显示「未找到」文字，行内显示绿色对勾（已通过状态）
+    expect(wrapper.html()).not.toContain("未找到");
+    expect(vm().checkState.blog).toBe("ok");
   });
 });

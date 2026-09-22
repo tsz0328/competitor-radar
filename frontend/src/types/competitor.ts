@@ -51,7 +51,8 @@ export type SourceType =
   | "docs"
   | "status"
   | "rss"
-  | "app_store";
+  | "app_store"
+  | "custom"; // 用户自定义页面
 
 /** 后端返回的"可选监控页面"目录项 */
 export interface SourceTypeOption {

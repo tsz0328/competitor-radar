@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>BrandPanel 卡片图标核对</title>
+<style>
+  body {
+    margin: 0; padding: 34px;
+    font-family: system-ui, "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #4a7fe0, #eaf1ff);
+    min-height: 100vh;
+  }
+  h2 { font-size: 14px; color: #fff; margin: 0 0 12px; font-weight: 500 }
+  .grid { display: flex; gap: 28px; flex-wrap: wrap; margin-bottom: 34px }
+  .cell { text-align: center; width: 72px }
+  .cell .name { font-size: 12px; color: #fff; margin-top: 7px; text-shadow: 0 1px 2px rgba(0,0,0,.35) }
+
+  .logo-new {
+    width: 29px; height: 29px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.18);
+  }
+  .logo-new img { width: 62%; height: 62%; object-fit: contain; display: block }
+
+  .logo-old {
+    width: 29px; height: 29px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.22);
+  }
+  .logo-old img { width: 62%; height: 62%; object-fit: contain; display: block }
+
+  .card {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 14px; border-radius: 12px;
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.3);
+    backdrop-filter: blur(4px);
+    margin: 0 14px 14px 0;
+  }
+  .card .txt { display: flex; flex-direction: column }
+  .card .type { font-size: 12px; font-weight: bold; color: rgba(255,255,255,.85) }
+  .card .msg { font-size: 12.6px; color: rgba(255,255,255,.72); white-space: nowrap }
+</style>
+</head>
+<body>
+  <h2>新方案：白底圆 + 图标内缩 62%</h2>
+  <div class="grid" id="new"></div>
+
+  <h2>对照：保留品牌色圆底，真实 logo 直接叠上去</h2>
+  <div class="grid" id="old"></div>
+
+  <h2>放进真实卡片（1vmax = 12px，即 1200px 视口下的实际尺寸）</h2>
+  <div id="cards"></div>
+
+<script>
+const items = [
+  ['飞书', 'feishu.ico', '#3370ff'],
+  ['钉钉', 'dingtalk.png', '#1677ff'],
+  ['企业微信', 'wecom.png', '#07c160'],
+  ['腾讯会议', 'tencent-meeting.png', '#0052d9'],
+  ['Notion', 'notion.png', '#141414'],
+  ['Figma', 'figma.png', '#a259ff'],
+  ['Vercel', 'vercel.png', '#000000'],
+  ['Trae', 'trae.png', '#111111'],
+];
+const base = '../../frontend/src/assets/brand-logos/';
+const cellNew = ([n, f]) =>
+  `<div class="cell"><span class="logo-new"><img src="${base}${f}" alt="${n}"></span><div class="name">${n}</div></div>`;
+const cellOld = ([n, f, c]) =>
+  `<div class="cell"><span class="logo-old" style="background:${c}"><img src="${base}${f}" alt="${n}"></span><div class="name">${n}</div></div>`;
+const card = ([n, f], i) =>
+  `<span class="card"><span class="logo-new"><img src="${base}${f}" alt="${n}"></span><span class="txt"><span class="type">${n} · ${i % 3 === 0 ? '价格调整' : '新功能'}</span><span class="msg">${['多维表格接入 AI 智能助手', '下调基础版团队人数限制', '上线 AI 实时字幕翻译', '发布全新 AI 工作区', 'v0 支持一句话生成全栈应用', '发布 AI 设计生成', '上线 SOLO 模式自动完成开发任务', '打通视频号直播带货'][i]}</span></span></span>`;
+
+document.getElementById('new').innerHTML = items.map(cellNew).join('');
+document.getElementById('old').innerHTML = items.map(cellOld).join('');
+document.getElementById('cards').innerHTML = items.map(card).join('');
+</script>
+</body>
+</html>

@@ -20,16 +20,18 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-def _recipients(to: list[str] | None, fallback_sender: str) -> list[str]:
-    """收件人：优先调用方给的（某用户自己的通知邮箱），否则回退运维配置。
+def _recipients(to: list[str] | None) -> list[str]:
+    """收件人：只认调用方给的（那个用户自己的邮箱），没给就回退**显式配置的**运维邮箱。
 
-    - 传了 to：这是"某个用户的事"（如他的竞品出现高优变化），只发给他自己；
-    - 没传：系统级通知（如周报批次完成），发给 NOTIFY_RECIPIENTS / SMTP_USERNAME /
-      SMTP_SENDER（fallback_sender 为运行时生效的发件人）。
+    设计红线：任何「某个用户的事」都必须传 `to`，且收件人只能是该用户本人。
+    没传 `to` 的只允许是系统级运维通知（如抓取任务整体异常），发给显式配置的
+    `NOTIFY_RECIPIENTS`；**绝不再回退到 SMTP_USERNAME / SMTP_SENDER**——发件账号
+    往往就是管理员本人的邮箱，一旦回退，用户的竞品动态会被静默投进管理员信箱。
+    没有显式配置时，宁可返回空列表让上层落一条 warning，也不猜收件人。
     """
     if to:
         return [item.strip() for item in to if item and item.strip()]
-    raw = settings.notify_recipients or settings.smtp_username or fallback_sender
+    raw = settings.notify_recipients
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
@@ -71,7 +73,8 @@ def _send_smtp(
 async def notify(title: str, message: str, to: list[str] | None = None) -> bool:
     """发送一条通知；返回是否真的发出去了（未开启或发送失败都返回 False）。
 
-    to 指定收件人（用户自己的通知邮箱）；不传则回退运维配置的收件人。
+    to 指定收件人——**凡是"某个用户的事"，必须传本人的邮箱**；
+    不传只适用于系统级运维通知（发给 NOTIFY_RECIPIENTS，未配置则不发）。
     """
     if not settings.notify_enabled:
         return False
@@ -83,7 +86,7 @@ async def notify(title: str, message: str, to: list[str] | None = None) -> bool:
                 _send_smtp,
                 title,
                 message,
-                _recipients(to, cfg["sender"]),
+                _recipients(to),
                 cfg["sender"],
                 cfg["host"],
                 cfg["port"],
@@ -101,3 +104,24 @@ async def notify(title: str, message: str, to: list[str] | None = None) -> bool:
             str(exc)[:120],
         )
         return False
+
+
+async def send_test_email(cfg: dict, to: str) -> None:
+    """管理端「发送测试邮件」：用运行时生效配置给指定收件人发一封测试信。
+
+    与 notify 不同：这是管理员主动验证配置，不受 NOTIFY_ENABLED 总开关限制；
+    配置缺失（没填 host / 用户名 / 授权码）时 _send_smtp 会抛 RuntimeError，
+    由调用方（api/admin.py）捕获后把失败原因带给前端。
+    """
+    await asyncio.to_thread(
+        _send_smtp,
+        "【竞品雷达】SMTP 测试邮件",
+        "这是一封测试邮件：如果你收到它，说明发件配置（服务器 / 端口 / "
+        "用户名 / 授权码 / 发件邮箱）工作正常。",
+        [to],
+        cfg["sender"],
+        cfg["host"],
+        cfg["port"],
+        cfg["username"],
+        cfg["password"],
+    )

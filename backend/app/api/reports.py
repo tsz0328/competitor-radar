@@ -1,5 +1,6 @@
 """竞品周报接口。"""
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
@@ -21,6 +22,7 @@ from app.schemas.report import (
     ReportDetailOut,
     ReportFavoriteIn,
     ReportGenerateOut,
+    ReportGenerateStatusOut,
     ReportListItemOut,
     ReportListOut,
     ReportShareIn,
@@ -29,6 +31,23 @@ from app.schemas.report import (
 from app.services import report as report_service
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
+
+# 进行中的报告生成（进程内存）：(user_id, report_type) → 开始时间戳。
+# 供前端刷新页面后恢复「生成中」按钮状态；生成结束（成功/失败）即移除。
+_generating_reports: dict[tuple[int, str], float] = {}
+
+
+@router.get("/generate-status", response_model=ReportGenerateStatusOut)
+async def report_generate_status(
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """当前用户是否正在生成周报/月报（刷新页面后据此恢复按钮状态）。"""
+    generating: str | None = None
+    for (uid, rtype) in _generating_reports:
+        if uid == current_user.id:
+            generating = rtype
+            break
+    return ReportGenerateStatusOut(generating=generating)
 
 
 @router.get("", response_model=ReportListOut)
@@ -83,9 +102,14 @@ async def generate_report(
     每次都直接生成一份新的报告，可重复生成、互不覆盖、不弹冲突。
     """
     rt = ReportType(report_type)
-    report = await report_service.generate_report(
-        db, current_user, report_type=rt, weeks_ago=weeks_ago
-    )
+    key = (current_user.id, rt.value)
+    _generating_reports[key] = time.time()
+    try:
+        report = await report_service.generate_report(
+            db, current_user, report_type=rt, weeks_ago=weeks_ago
+        )
+    finally:
+        _generating_reports.pop(key, None)
     await db.commit()
     await db.refresh(report)
     return ReportGenerateOut(status="created", report=report_service.to_detail(report))
@@ -109,7 +133,7 @@ async def _get_owned(db: AsyncSession, report_id: int, current_user: User) -> We
         )
     ).scalar_one_or_none()
     if report is None:
-        raise BusinessError(ERR_REPORT_NOT_FOUND, "报告不存在", 404)
+        raise BusinessError(ERR_REPORT_NOT_FOUND, "报告不存在或已被删除，请刷新列表后重试", 404)
     return report
 
 
@@ -124,7 +148,7 @@ async def _get_any_owned(db: AsyncSession, report_id: int, current_user: User) -
         )
     ).scalar_one_or_none()
     if report is None:
-        raise BusinessError(ERR_REPORT_NOT_FOUND, "报告不存在", 404)
+        raise BusinessError(ERR_REPORT_NOT_FOUND, "报告不存在或已被删除，请刷新列表后重试", 404)
     return report
 
 
@@ -173,7 +197,7 @@ async def restore_report(
     """从回收站恢复：清除删除标记，报告重新回到列表。"""
     report = await _get_any_owned(db, report_id, current_user)
     if report.deleted_at is None:
-        raise BusinessError(ERR_REPORT_NOT_FOUND, "该报告不在回收站中", 400)
+        raise BusinessError(ERR_REPORT_NOT_FOUND, "该报告不在回收站中，请刷新后重试", 400)
     report.deleted_at = None
     await db.commit()
     await db.refresh(report)
@@ -189,7 +213,7 @@ async def purge_report(
     """从回收站彻底删除：连同分享信息一并清除，不可恢复。"""
     report = await _get_any_owned(db, report_id, current_user)
     if report.deleted_at is None:
-        raise BusinessError(ERR_REPORT_NOT_FOUND, "该报告不在回收站中", 400)
+        raise BusinessError(ERR_REPORT_NOT_FOUND, "该报告不在回收站中，请刷新后重试", 400)
     await db.delete(report)
     await db.commit()
 

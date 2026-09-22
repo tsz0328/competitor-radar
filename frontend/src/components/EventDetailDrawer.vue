@@ -25,6 +25,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "update:modelValue", value: boolean): void;
   (e: "select", id: number): void;
+  /** 主详情加载成功时触发，携带事件 id；父组件据此（如从通知跳入）标记已读 */
+  (e: "loaded", id: number): void;
 }>();
 
 const eventStore = useEventStore();
@@ -111,14 +113,33 @@ async function openSnapshot(item: EventSnapshot) {
 async function loadDetail(id: number) {
   try {
     const d = await eventStore.loadEventDetail(id);
+    // 主详情拿到即通知父组件（从通知跳入时在此标记已读），
+    // 不再等次要数据，避免「主详情已成功、次要请求挂了」被误判成整体失败。
+    // 仅在确有数据时才 emit（陈旧请求被取代时 d 为 undefined，不触发标记已读）。
+    if (d) emit("loaded", id);
     // 打开新事件时重置筛选，再拉取相关事件
     relatedDays.value = "";
     relatedCategory.value = "";
-    if (d?.competitorId) await eventStore.loadRelatedEvents(d.competitorId, id);
+    if (d?.competitorId) {
+      // 相关事件失败不应关掉抽屉：它们只是侧栏补充，主内容已就绪
+      try {
+        await eventStore.loadRelatedEvents(d.competitorId, id);
+      } catch {
+        /* 侧栏留空即可，不向上抛 */
+      }
+    }
+    // 历史快照失败已在 loadSnapshots 内部消化（catch 内清空），这里不抛
     await loadSnapshots(id);
   } catch {
-    visible.value = false; // 失败提示由 request.ts 拦截器统一弹出
+    // 仅「主详情」失败才落到这里。注意：**不关闭抽屉**，
+    // 让模板的 v-else 兜底显示「没能加载 + 重试」，用户可原地重试。
+    // 失败提示 toast 仍由 request.ts 拦截器统一弹出。
   }
+}
+
+/** 原地重试：主详情加载失败时，用户在错误态点击「重试」 */
+function retryLoad() {
+  if (props.eventId != null) loadDetail(props.eventId);
 }
 
 /** 点击相关事件：通知父组件切换 eventId（由其 watch 重新加载详情+相关事件） */
@@ -362,7 +383,12 @@ watch(
       </template>
 
       <!-- 既没详情也不在加载：通常是接口失败（错误提示由 request.ts 统一弹出） -->
-      <div v-else class="detail-empty">没能加载这条情报，请稍后重试</div>
+      <div v-else class="detail-empty">
+        <p>没能加载这条情报，请稍后重试</p>
+        <el-button type="primary" size="small" @click="retryLoad">
+          重试
+        </el-button>
+      </div>
     </div>
   </el-drawer>
 

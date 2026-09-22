@@ -52,6 +52,32 @@ def clean_host(value: str | None) -> str:
     return host
 
 
+def _registrable_domain(host: str) -> str:
+    """取"可注册域名"（eTLD+1）：取最后两段标签。
+
+    用于判断跨域跳转。覆盖 example.com / www.example.com / a.b.example.com 等常见情形。
+    对 .co.uk / .com.cn 等多段公共后缀会少算一段（误判成不同域），但这种误判只会让
+    "本应放行"的同源跳转改走"无图标"回退——不会解析到错误图标，落在安全侧。
+    """
+    labels = host.split(".")
+    if len(labels) <= 2:
+        return host
+    return ".".join(labels[-2:])
+
+
+def _same_domain(host_a: str, host_b: str) -> bool:
+    """两个 host 是否属同一所有者域名（忽略协议、www 子域、端口、路径）。
+
+    用于识别跨域跳转：域名被收购/停放/跳转后落地到无关站点，此时落地的 HTML 不是
+    原站点的，不能据其解析图标。
+    """
+    a = clean_host(host_a)
+    b = clean_host(host_b)
+    if not a or not b:
+        return False
+    return _registrable_domain(a) == _registrable_domain(b)
+
+
 def _pick_icon_urls(html_text: str, base_url: str) -> list[str]:
     """按优先级挑出 HTML 里的图标地址（apple-touch-icon > 其他 icon，尺寸大的优先）。"""
     ranked: list[tuple[int, int, str]] = []  # (优先级, 尺寸, 绝对地址)
@@ -106,7 +132,13 @@ async def _is_image(client: httpx.AsyncClient, url: str) -> bool:
 
 
 async def _probe(host: str) -> str | None:
-    """抓首页 HTML → 解析图标候选 → 逐个校验，返回第一个可用的图片地址。"""
+    """抓首页 HTML → 解析图标候选 → 逐个校验，返回第一个可用的图片地址。
+
+    跨域跳转保护：域名被收购/停放/跳转（如 linear.com → analog.com）时，
+    `follow_redirects` 会落到无关站点的 HTML，据其解析出的图标是别人的。
+    这种情形直接返回 None（前端回退首字母头像）：既不据落地 HTML 解析，
+    也不走原 host 的 /favicon.ico 兜底——那条路径同样会跳到对方站点。
+    """
     page_url = f"https://{host}/"
     if not (await validate_remote_url(page_url)).ok:
         return None
@@ -124,7 +156,17 @@ async def _probe(host: str) -> str | None:
                 response = await client.get(page_url)
                 content_type = response.headers.get("content-type", "").lower()
                 if response.status_code < 400 and "html" in content_type:
-                    candidates.extend(_pick_icon_urls(response.text, str(response.url)))
+                    final_url = str(response.url)
+                    if not _same_domain(host, final_url):
+                        # 跨域跳转：落地 HTML 不是原站点，据其解析出的图标是别人的。
+                        # 直接放弃，不继续解析也不走原 host 兜底（同样会跳走）。
+                        logger.warning(
+                            "解析图标时域名跨域跳转，放弃 host=%s → %s",
+                            host,
+                            clean_host(final_url),
+                        )
+                        return None
+                    candidates.extend(_pick_icon_urls(response.text, final_url))
             except httpx.HTTPError:
                 pass  # 首页拿不到也不影响，下面还有常规路径兜底
 

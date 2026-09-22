@@ -41,6 +41,15 @@ class LlmProvider(Base, TimestampMixin):
     # 避免每次打开编辑都重新请求上游
     models: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
+    # 最近一次「测试连接」的结果：none=未测试 / ok=通过 / fail=不通过。
+    # 编辑供应商（地址/模型/Key 变化）后旧结果作废，重置回 none。
+    last_test_status: Mapped[str] = mapped_column(
+        String(16), default="none", nullable=False
+    )
+    last_test_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

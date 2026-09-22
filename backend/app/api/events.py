@@ -303,7 +303,7 @@ async def event_snapshots(
         )
     ).scalar_one_or_none()
     if event is None:
-        raise BusinessError(ERR_EVENT_NOT_FOUND, "事件不存在", 404)
+        raise BusinessError(ERR_EVENT_NOT_FOUND, "事件不存在或已被删除，请刷新列表后重试", 404)
     if event.source_id is None:
         return []
 
@@ -348,7 +348,7 @@ async def get_event(
         )
     ).first()
     if row is None:
-        raise BusinessError(ERR_EVENT_NOT_FOUND, "事件不存在", 404)
+        raise BusinessError(ERR_EVENT_NOT_FOUND, "事件不存在或已被删除，请刷新列表后重试", 404)
 
     event, _name, official_url, _source_name, source_url, _logo_url = row
     base = _to_record(row)

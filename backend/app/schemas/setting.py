@@ -1,4 +1,6 @@
 """系统设置（LLM 模型配置）的请求 / 响应模型。"""
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
 
@@ -72,6 +74,9 @@ class LLMProviderOut(BaseModel):
     # 已缓存的模型数量。完整列表走 /llm/providers/{id}/models 按需取，
     # 避免大列表在每次列表请求里全量传输
     models_count: int = 0
+    # 最近一次「测试连接」结果：none=未测试 / ok=通过 / fail=不通过
+    test_status: str = "none"
+    last_test_at: datetime | None = None
 
 
 class LLMModelsOut(BaseModel):
@@ -172,10 +177,16 @@ class LLMFetchModelsRequest(BaseModel):
 
 
 class LLMFetchModelsResult(BaseModel):
-    """拉取结果：ok=false 时 models 为空，message 给可读原因。"""
+    """拉取结果：ok=false 时 models 为空，message 给可读原因。
+
+    models 只含对话补全模型；拉到但被识别为非对话模型（文生图/嵌入/语音等）
+    的会放进 filtered_models 供前端提示，不落到下拉框。
+    """
 
     model_config = _CFG
 
     ok: bool = False
     models: list[str] = Field(default_factory=list)
+    # 本次拉取中被过滤的非对话模型名，仅用于界面提示「过滤掉了什么」
+    filtered_models: list[str] = Field(default_factory=list)
     message: str = ""

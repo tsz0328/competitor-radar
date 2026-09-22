@@ -14,6 +14,7 @@ export const SOURCE_TYPES = [
   { type: "status", label: "服务状态页", render: "browser", defaultIntervalMinutes: 60, llmHint: "故障/维护公告" },
   { type: "rss", label: "RSS 订阅", render: "http", defaultIntervalMinutes: 60, llmHint: "订阅源条目变化" },
   { type: "app_store", label: "应用商店页", render: "browser", defaultIntervalMinutes: 1440, llmHint: "版本更新/评分波动" },
+  { type: "custom", label: "自定义页面", render: "browser", defaultIntervalMinutes: 1440, llmHint: "" },
 ] as const;
 
 export function sourceLabel(type: string): string {
@@ -625,7 +626,7 @@ export function serializeCompetitor(c: any) {
   if (enabled) {
     statusLabel = failed.length ? "监控异常" : "监控中";
     statusType = failed.length ? "warning" : "success";
-    statusDesc = failed.length ? `抓取失败 ${failed.reduce((a, s) => a + (s.failCount || 1), 0)} 次` : "正常";
+    statusDesc = failed.length ? `异常页面 ${failed.length} 个` : "正常";
   }
 
   return {

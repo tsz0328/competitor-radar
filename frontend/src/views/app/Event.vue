@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useEventStore } from "@/stores/event";
 import { useCompetitorStore } from "@/stores/competitor";
+import { useNotificationStore } from "@/stores/notification";
 import EventDetailDrawer from "@/components/EventDetailDrawer.vue";
 import CompetitorLogo from "@/components/CompetitorLogo.vue";
 import type { EventRecord } from "@/types/event";
@@ -29,8 +30,17 @@ import {
 
 const eventStore = useEventStore();
 const competitorStore = useCompetitorStore();
+const notify = useNotificationStore();
 const route = useRoute();
 const router = useRouter();
+
+/**
+ * 从通知中心带 notify=1 深链跳进来时，记录「这条 id 是要标已读的那条」，
+ * 等详情抽屉 emit loaded（主详情加载成功）后再真正标记已读。
+ * 这样：详情加载失败 → 不标已读 → 通知仍然在未读列表里、可重新点开重试。
+ * 普通从列表/周报/相关事件打开的事件不带 notify，永远不触发标记已读。
+ */
+const pendingNotifyId = ref<number | null>(null);
 
 // 详情抽屉的"打开哪一条"状态提前声明，便于 applyQuery 从 URL 的 id 直接定位
 const detailVisible = ref(false);
@@ -122,6 +132,11 @@ function applyQuery() {
   if (idQ && Number.isFinite(idNum)) {
     detailId.value = idNum;
     detailVisible.value = true;
+    // 通知中心深链带 notify=1：这条 id 是「待标已读」的那条
+    pendingNotifyId.value = typeof q.notify === "string" ? idNum : null;
+  } else {
+    // 没有合法 id 时清掉待标已读态，避免脏状态残留
+    pendingNotifyId.value = null;
   }
 }
 
@@ -243,11 +258,25 @@ function resetFilters() {
 function openDetail(record: EventRecord) {
   detailId.value = record.id;
   detailVisible.value = true; // 组件打开后自行加载，等待态由组件承接
+  pendingNotifyId.value = null; // 从列表打开的不是通知，不标记已读
 }
 
 // 抽屉内"相关事件"跳转：更新 eventId 即可，抽屉自身的 watch 会重新加载详情
 function onSelectRelated(id: number) {
   detailId.value = id;
+  pendingNotifyId.value = null; // 相关事件不是通知，不标记已读
+}
+
+/**
+ * 抽屉主详情加载成功时回调（EventDetailDrawer emit loaded）。
+ * 仅当这条 id 正是从通知中心带 notify=1 跳入的那条，才标记已读——
+ * 详情加载失败不会触发本回调，自然也就不会把通知标成已读。
+ */
+function onDetailLoaded(id: number) {
+  if (pendingNotifyId.value != null && id === pendingNotifyId.value) {
+    notify.markRead(id);
+    pendingNotifyId.value = null;
+  }
 }
 
 // 导出当前列表（已应用筛选/分页的记录），格式由下拉菜单选
@@ -414,14 +443,12 @@ const groups = computed(() => {
                         {{ item.priority }}
                       </span>
                     </div>
-                    <el-button
-                      class="detail-btn"
-                      size="small"
-                      @click="openDetail(item)"
-                    >
+                  </div>
+                  <div class="event-footer">
+                    <span class="event-ago">{{ item.ago }}</span>
+                    <el-button class="detail-btn" @click="openDetail(item)">
                       查看详情
                     </el-button>
-                    <div class="event-ago">{{ item.ago }}</div>
                   </div>
                 </div>
               </div>
@@ -503,7 +530,7 @@ const groups = computed(() => {
     </div>
 
     <!-- 事件详情抽屉（事件流页与 Dashboard 共用同一个组件） -->
-    <EventDetailDrawer v-model="detailVisible" :event-id="detailId" @select="onSelectRelated" />
+    <EventDetailDrawer v-model="detailVisible" :event-id="detailId" @select="onSelectRelated" @loaded="onDetailLoaded" />
   </div>
 </template>
 
@@ -729,7 +756,8 @@ const groups = computed(() => {
 .event-card {
   flex: 1;
   display: flex;
-  gap: 1vw;
+  flex-wrap: wrap;
+  gap: 1vh 1vw;
   padding: 1.5vh 1vw;
   align-items: flex-start;
 }
@@ -839,13 +867,26 @@ const groups = computed(() => {
 }
 
 .detail-btn {
-  align-self: flex-end;
+  /* 大一号：默认尺寸 + 略加内边距，作为卡片底部主操作 */
+  padding: 0.55vh 1.4vw;
+  font-size: 0.95vmax;
 }
 
 .event-ago {
-  font-size: 1vmax;
+  font-size: 0.9vmax;
   color: var(--app-color-gray);
-  text-align: right;
+}
+
+/* 卡片底部操作行：整行展示，左时间、右「查看详情」 */
+.event-footer {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1vw;
+  padding-top: 1vh;
+  margin-top: 0.2vh;
+  border-top: 1px dashed #e5e7eb;
 }
 
 /* 空状态 */

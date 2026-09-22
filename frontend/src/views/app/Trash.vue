@@ -5,7 +5,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { Delete, RefreshLeft } from "@element-plus/icons-vue";
 import type { CompetitorItem } from "@/types/competitor";
 import type { ReportListItem } from "@/types/report";
-import { fetchTrash, purgeCompetitor, restoreCompetitor } from "@/api/competitor";
+import { fetchTrash, purgeAllTrash, purgeCompetitor, restoreCompetitor } from "@/api/competitor";
 import { fetchTrashReports, purgeReport, restoreReport } from "@/api/report";
 import { useCompetitorStore } from "@/stores/competitor";
 import { useReportStore } from "@/stores/report";
@@ -126,6 +126,36 @@ async function handlePurgeCompetitor(item: CompetitorItem) {
   }
 }
 
+/** 清空回收站：确认后一次性彻底删除回收站里的全部竞品 */
+const clearingAll = ref(false);
+async function handleClearTrash() {
+  if (clearingAll.value || !competitorItems.value.length) return;
+  try {
+    await ElMessageBox.confirm(
+      `将彻底删除回收站里的全部 ${competitorItems.value.length} 个竞品，连同其监控记录、情报事件、历史快照一并清除，不可恢复。`,
+      "清空回收站",
+      {
+        type: "warning",
+        confirmButtonText: "全部彻底删除",
+        cancelButtonText: "取消",
+        confirmButtonClass: "el-button--danger",
+      },
+    );
+  } catch {
+    return; // 用户取消
+  }
+  clearingAll.value = true;
+  try {
+    await purgeAllTrash();
+    await loadCompetitorTrash();
+    ElMessage.success("回收站已清空");
+  } catch {
+    // 错误提示由拦截器统一弹出
+  } finally {
+    clearingAll.value = false;
+  }
+}
+
 async function handleRestoreReport(item: ReportListItem) {
   if (restoringReportId.value) return;
   restoringReportId.value = item.id;
@@ -186,12 +216,24 @@ function goManage() {
           天，期间可一键恢复；过期将自动清理。
         </p>
       </div>
-      <el-button
-        :icon="RefreshLeft"
-        @click="activeTab === 'competitor' ? loadCompetitorTrash() : loadReportTrash()"
-      >
-        刷新
-      </el-button>
+      <div class="toolbar-actions">
+        <el-button
+          v-if="activeTab === 'competitor'"
+          type="danger"
+          :icon="Delete"
+          :loading="clearingAll"
+          :disabled="competitorItems.length === 0"
+          @click="handleClearTrash"
+        >
+          清空回收站
+        </el-button>
+        <el-button
+          :icon="RefreshLeft"
+          @click="activeTab === 'competitor' ? loadCompetitorTrash() : loadReportTrash()"
+        >
+          刷新
+        </el-button>
+      </div>
     </div>
 
     <el-tabs v-model="activeTab" class="trash-tabs" @tab-change="switchTab">
@@ -296,7 +338,7 @@ function goManage() {
               </template>
             </el-table-column>
 
-            <el-table-column label="生成日期" min-width="120">
+            <el-table-column label="生成时间" min-width="150">
               <template #default="{ row }">{{ row.generatedAt }}</template>
             </el-table-column>
 
@@ -365,6 +407,11 @@ function goManage() {
   align-items: flex-start;
   justify-content: space-between;
   gap: 1vw;
+}
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6vw;
 }
 .page-title {
   margin: 0;

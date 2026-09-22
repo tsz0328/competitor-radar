@@ -26,14 +26,14 @@ async def get_current_user(
     """解析令牌 → 查出用户 → 返回；任何一步失败都直接 401。"""
     payload = decode_access_token(credentials.credentials)
     if payload is None:
-        raise BusinessError(ERR_TOKEN_INVALID, "令牌无效或已过期", 401)
+        raise BusinessError(ERR_TOKEN_INVALID, "登录状态已失效，请重新登录", 401)
 
     result = await db.execute(select(User).where(User.id == int(payload.get("sub"))))
     user = result.scalar_one_or_none()
     if user is None:
-        raise BusinessError(ERR_TOKEN_USER_GONE, "用户不存在", 401)
+        raise BusinessError(ERR_TOKEN_USER_GONE, "登录状态已失效，请重新登录", 401)
     if not user.is_active:
-        raise BusinessError(ERR_ACCOUNT_DISABLED, "账号已被停用", 401)
+        raise BusinessError(ERR_ACCOUNT_DISABLED, "账号已被停用，请联系管理员", 401)
     return user
 
 
@@ -52,17 +52,17 @@ async def get_current_user_sse(
         if auth_header.lower().startswith("bearer "):
             token = auth_header[7:]
     if not token:
-        raise BusinessError(ERR_TOKEN_INVALID, "缺少令牌", 401)
+        raise BusinessError(ERR_TOKEN_INVALID, "登录状态已失效，请重新登录", 401)
 
     payload = decode_access_token(token)
     if payload is None:
-        raise BusinessError(ERR_TOKEN_INVALID, "令牌无效或已过期", 401)
+        raise BusinessError(ERR_TOKEN_INVALID, "登录状态已失效，请重新登录", 401)
 
     user = (
         await db.execute(select(User).where(User.id == int(payload.get("sub"))))
     ).scalar_one_or_none()
     if user is None:
-        raise BusinessError(ERR_TOKEN_USER_GONE, "用户不存在", 401)
+        raise BusinessError(ERR_TOKEN_USER_GONE, "登录状态已失效，请重新登录", 401)
     if not user.is_active:
-        raise BusinessError(ERR_ACCOUNT_DISABLED, "账号已被停用", 401)
+        raise BusinessError(ERR_ACCOUNT_DISABLED, "账号已被停用，请联系管理员", 401)
     return user

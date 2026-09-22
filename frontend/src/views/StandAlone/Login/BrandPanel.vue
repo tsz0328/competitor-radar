@@ -7,37 +7,46 @@ import {
   Document,
 } from "@element-plus/icons-vue";
 import RadarCanvas from "./RadarCanvas.vue";
+import iconDingtalk from "@/assets/brand-logos/dingtalk.png";
+import iconFeishu from "@/assets/brand-logos/feishu.ico";
+import iconFigma from "@/assets/brand-logos/figma.png";
+import iconNotion from "@/assets/brand-logos/notion.png";
+import iconTencentMeeting from "@/assets/brand-logos/tencent-meeting.png";
+import iconTrae from "@/assets/brand-logos/trae.png";
+import iconVercel from "@/assets/brand-logos/vercel.png";
+import iconWecom from "@/assets/brand-logos/wecom.png";
 
 /**
- * 演示情报流：跨品类代表竞品动态（与 seed_mock_data 一致），轮流喂给四张悬浮卡当作「直播」。
- * 图标用「事件类型」矢量图标（新功能/价格调整/舆论动态），竞品身份体现在文字里的竞品名，
- * 避免依赖真实 favicon（Notion/Figma 等 SPA 会加载失败）或复刻官方商标。
+ * 竞品 → 图标：取自图标库里已沉淀的真实 logo，拷进 assets/brand-logos 随包发布。
+ *
+ * 刻意**不**在运行时引用后端的 /api/icons：登录页是公开页，不该依赖后端在跑；
+ * 而且管理员在后台「替换图标」时会删掉旧文件、换成新的 uuid 文件名，
+ * 硬编码路径会静默 404。代价是新增演示竞品要手动把图标同步进这个目录。
  */
-const feed = [
-  { name: "飞书", color: "#3370ff", type: "新功能", text: "多维表格接入 AI 智能助手" },
-  { name: "钉钉", color: "#1677ff", type: "价格调整", text: "下调基础版团队人数限制" },
-  { name: "腾讯会议", color: "#0052d9", type: "新功能", text: "上线 AI 实时字幕翻译" },
-  { name: "Notion", color: "#141414", type: "新功能", text: "发布全新 AI 工作区" },
-  { name: "Asana", color: "#f06a6a", type: "新功能", text: "上线 AI 项目规划助手" },
-  { name: "Figma", color: "#a259ff", type: "新功能", text: "发布 AI 设计生成" },
-  { name: "GitHub", color: "#24292f", type: "新功能", text: "Copilot 新版本发布" },
-  { name: "企业微信", color: "#07c160", type: "新功能", text: "打通视频号直播带货" },
-  { name: "腾讯会议", color: "#0052d9", type: "价格调整", text: "调整个人版收费策略" },
-  { name: "Notion", color: "#141414", type: "价格调整", text: "商业版席位定价上调" },
-];
-
-/** 竞品 → 原创抽象线描符号（功能隐喻，非官方商标；每个竞品唯一、风格统一、互不重复） */
-const ICONS: Record<string, string> = {
-  飞书: `<path d="M4 4h16v10H9l-5 4z" />`,
-  钉钉: `<path d="M4 13l5 5 11-12" />`,
-  企业微信: `<circle cx="6" cy="12" r="3" /><circle cx="18" cy="12" r="3" /><path d="M9 12h6" />`,
-  腾讯会议: `<rect x="3" y="6" width="13" height="12" rx="2" /><path d="M16 10l5-3v10l-5-3z" />`,
-  Notion: `<path d="M6 3h9l4 4v14H6z" /><path d="M9 11h6M9 15h6M9 19h3" />`,
-  Asana: `<path d="M6 5v14M12 5v14M18 5v14" />`,
-  Figma: `<circle cx="12" cy="7" r="3.5" /><circle cx="12" cy="16" r="3.5" />`,
-  GitHub: `<path d="M9 6l-5 6 5 6M15 6l5 6-5 6" />`,
+const LOGOS: Record<string, string> = {
+  飞书: iconFeishu,
+  钉钉: iconDingtalk,
+  企业微信: iconWecom,
+  腾讯会议: iconTencentMeeting,
+  Notion: iconNotion,
+  Figma: iconFigma,
+  Vercel: iconVercel,
+  Trae: iconTrae,
 };
-const logoIcon = (name: string) => ICONS[name] ?? ICONS.飞书;
+
+/** 演示情报流：跨品类代表竞品动态，轮流喂给四张悬浮卡当作「直播」 */
+const feed = [
+  { name: "飞书", type: "新功能", text: "多维表格接入 AI 智能助手" },
+  { name: "钉钉", type: "价格调整", text: "下调基础版团队人数限制" },
+  { name: "腾讯会议", type: "新功能", text: "上线 AI 实时字幕翻译" },
+  { name: "Notion", type: "新功能", text: "发布全新 AI 工作区" },
+  { name: "Vercel", type: "新功能", text: "v0 支持一句话生成全栈应用" },
+  { name: "Figma", type: "新功能", text: "发布 AI 设计生成" },
+  { name: "Trae", type: "新功能", text: "上线 SOLO 模式自动完成开发任务" },
+  { name: "企业微信", type: "新功能", text: "打通视频号直播带货" },
+  { name: "腾讯会议", type: "价格调整", text: "调整个人版收费策略" },
+  { name: "Notion", type: "价格调整", text: "商业版席位定价上调" },
+];
 
 /** 四张卡片 = 四个槽位，各自持有一条动态；游标轮流更新槽位模拟「直播」 */
 const positionClasses = ["card-tl", "card-tr", "card-bl", "card-br"];
@@ -112,16 +121,11 @@ const features = [
           :class="positionClasses[i]"
           @click="advanceSlot(i)"
         >
-          <span class="float-card-logo" :style="{ background: card.color }">
-            <svg
-              class="float-card-svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              v-html="logoIcon(card.name)"
+          <span class="float-card-logo">
+            <img
+              class="float-card-logo-img"
+              :src="LOGOS[card.name]"
+              :alt="card.name"
             />
           </span>
           <div class="float-card-text">
@@ -258,6 +262,8 @@ const features = [
     transform: translateY(-1.2vh);
   }
 }
+/* 图标统一放在白底圆里：真实 logo 形态不一（自带圆底 / 自带方底 / 透明底），
+   直接叠在品牌色底上会互相打架；统一的白色圆底让它们看起来是一套 */
 .float-card-logo {
   width: 2.4vmax;
   height: 2.4vmax;
@@ -265,13 +271,16 @@ const features = [
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  background: var(--app-color-white);
   flex: none;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
 }
-.float-card-svg {
-  width: 1.5vmax;
-  height: 1.5vmax;
+/* 图标只占圆底 62%：自带方形底的图标（腾讯会议 / Notion / Figma）贴边会被圆角切掉四个角 */
+.float-card-logo-img {
+  width: 62%;
+  height: 62%;
+  object-fit: contain;
+  display: block;
 }
 .float-card-text {
   display: flex;

@@ -18,6 +18,8 @@ export interface ReadAck {
 export function fetchNotifications(params?: {
   limit?: number;
   offset?: number;
+  /** 时间窗天数：省略=系统默认；0=不限(归档)；N=最近 N 天 */
+  days?: number;
 }): Promise<NotificationListResult> {
   return request.get<unknown, NotificationListResult>("/api/notifications", { params });
 }
@@ -27,9 +29,10 @@ export function markNotificationRead(eventId: number): Promise<ReadAck> {
   return request.post<unknown, ReadAck>(`/api/notifications/${eventId}/read`, null);
 }
 
-/** 全部已读，返回未读数 */
-export function markAllNotificationsRead(): Promise<ReadAck> {
-  return request.post<unknown, ReadAck>("/api/notifications/read-all", null);
+/** 全部已读，返回未读数。days=0 表示归档全量已读 */
+export function markAllNotificationsRead(days?: number): Promise<ReadAck> {
+  const params = days != null ? { days } : undefined;
+  return request.post<unknown, ReadAck>("/api/notifications/read-all", null, { params });
 }
 
 /** 轮询未读数（轻量，不拉列表） */

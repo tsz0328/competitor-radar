@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="76" failures="0" errors="0" time="27.556">
+    <testsuite name="src/components/CompetitorFormDialog.e2e.spec.ts" timestamp="2026-09-22T02:14:47.907Z" hostname="DESKTOP-3P9I9BK" tests="2" failures="0" errors="0" skipped="0" time="1.2278027">
+        <testcase classname="src/components/CompetitorFormDialog.e2e.spec.ts" name="添加竞品 - 端到端冒烟（组件 → api → store） &gt; 填名称 → 规则预填 → 立即创建：全链路跑通并提交正确载荷" time="0.7749683">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.e2e.spec.ts" name="添加竞品 - 端到端冒烟（组件 → api → store） &gt; 官网不可达时：默认被拦截，不发新增请求" time="0.4501663">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/CompetitorFormDialog.spec.ts" timestamp="2026-09-22T02:14:47.910Z" hostname="DESKTOP-3P9I9BK" tests="51" failures="0" errors="0" skipped="0" time="20.5264947">
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 名称失焦自动预填（本地规则，不发请求） &gt; 英文名 → 按规则预填官网+页面，状态为未检测" time="0.8498623">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 名称失焦自动预填（本地规则，不发请求） &gt; 中文名 → 不生成无效网址，字段留空" time="0.3114972">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 名称失焦自动预填（本地规则，不发请求） &gt; 同名再次失焦 → 不重复覆盖（也保留用户手动改动）" time="0.3018811">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 手动填官网失焦 &gt; 反推名称 + 按规则预填页面 + 只检测官网本身" time="0.4195246">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 手动填官网失焦 &gt; 已通过官网被手改后再次失焦 → 重新检测新值（不被 ok 跳过）" time="0.3297115">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 页面网址失焦只检测单个 &gt; 未检测页面失焦 → 检测该页" time="0.4008152">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 页面网址失焦只检测单个 &gt; 已通过页面失焦 → 跳过不重复检测" time="0.3900592">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 页面网址失焦只检测单个 &gt; 手动编辑页面 → 标记手动，官网变动不再被覆盖" time="0.3891751">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 勾选 / 取消勾选页面 &gt; 官网已填 → 勾选新页面按本地规则自动补" time="0.3361402">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 勾选 / 取消勾选页面 &gt; 官网没填 → 勾选新页面保持空白" time="0.3148708">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 勾选 / 取消勾选页面 &gt; 取消勾选再重新勾选 → 保留通过状态与网址" time="0.3335586">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 勾选 / 取消勾选页面 &gt; 取消勾选期间官网变动 → 非手动页面重新猜测并清掉旧通过" time="0.322074">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 勾选 / 取消勾选页面 &gt; 点删除按钮（preserve=false）→ 不保留已填网址（即使已通过），重新勾选回到默认状态" time="0.3172151">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 检测网址按钮（跳过已通过） &gt; 已勾选页面网址空白 → 提示待填并中止（不发任何请求）" time="0.2371225">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 检测网址按钮（跳过已通过） &gt; 已通过的页面不被重复检测；未通过的会被检测" time="0.5825501">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 智能检测填充（先检测，未通过/空白才 AI 找） &gt; 已通过页面不被 AI 修改，且被放进 discover 的 skipTypes" time="0.6021972">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 智能检测填充（先检测，未通过/空白才 AI 找） &gt; 检测不通（即“空白未填/猜错”）的页面才会被 AI 寻找并回填为通过" time="0.4779063">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 立即创建/保存修改（硬拦截：存在未通过就不让保存） &gt; 存在未通过网址 → 提示且不保存" time="0.3395025">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 立即创建/保存修改（硬拦截：存在未通过就不让保存） &gt; 全部通过 → 直接保存" time="0.3142132">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 立即创建/保存修改（硬拦截：存在未通过就不让保存） &gt; 没有勾选任何页面 → 提示且不保存" time="0.2685177">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 立即创建/保存修改（硬拦截：存在未通过就不让保存） &gt; 手动清空的页面按空处理 → 提交时提示待填、不保存" time="0.3820507">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 边界修复 &gt; 编辑模式：官网失焦不覆盖已保存的页面网址" time="0.5216596">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 边界修复 &gt; 检测中修改字段 → 旧请求结果被丢弃，不覆盖新值状态" time="0.2517308">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 边界修复 &gt; 同一网址（官网地址与官网首页同址）状态同步一致" time="0.2725708">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 边界修复 &gt; AI 找回的页面地址，改官网后不被猜测覆盖" time="0.5330199">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 边界修复 &gt; 已填官网不可达 → 智能检测填充改用 AI 推断的官网" time="0.3716813">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 第二轮修复 &gt; 检测请求失败（未能校验）不硬拦截，仍可保存" time="0.3466874">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 第二轮修复 &gt; 官网未改动时再次失焦 → 不重复检测" time="0.2827674">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 第二轮修复 &gt; 重复竞品（同官网）→ 提示且不保存" time="0.2663228">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 第二轮修复 &gt; 重复竞品（域名写法不同也算）→ 归一化后提示且不保存" time="0.2540431">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 第二轮修复 &gt; 保存接口报错 → 不抛出、有兜底" time="0.3062039">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 第二轮修复 &gt; 官网带路径 → 页面猜测只用主机，避免重复拼接路径" time="0.3426411">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 第二轮修复 &gt; 大写协议 HTTPS:// 也能被正确识别" time="0.2753817">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 第三轮：更丝滑的默认行为 &gt; 默认只勾选「官网首页」" time="0.2765941">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 第三轮：更丝滑的默认行为 &gt; 官网不可达 → 硬拦截、不保存" time="0.3533836">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 第三轮：更丝滑的默认行为 &gt; 可选页不可达 → 不阻断保存，且该页被跳过（不写入创建）" time="0.4502808">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 第三轮：更丝滑的默认行为 &gt; 猜测的页面地址显示「待验证」标记" time="0.4088617">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 第三轮：更丝滑的默认行为 &gt; AI 没找到的页面 → 保持未通过，新建时被跳过" time="0.5428661">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 编辑模式：不可达页可选择性移除 &gt; 选「移除这些页」→ 该页不写入保存" time="0.5952234">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 编辑模式：不可达页可选择性移除 &gt; 选「保留」→ 该页照旧写入保存" time="0.5876982">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 单页「重新寻找」 &gt; 重新寻找：找到 → 回填并置为通过" time="0.4518185">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 单页「重新寻找」 &gt; 重新寻找：仍没找到 → 保持未通过" time="0.4618731">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 单页「重新寻找」 &gt; 一键重新寻找：批量把能找到的补回，找不到的保留" time="0.6015567">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 官网不可达放行 与 批量入口 &gt; 官网不可达：默认硬拦（未勾选放行）" time="0.36036">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 官网不可达放行 与 批量入口 &gt; 官网不可达但勾选「也先创建」→ 仍保存，且保留与官网同址的首页" time="0.3505806">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 官网不可达放行 与 批量入口 &gt; 存在未解决页面时，footer 显示「重新寻找全部」入口" time="0.4025321">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 官网不可达放行 与 批量入口 &gt; 重新寻找：逐页进行并记录 x/y 进度" time="0.5937751">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 官网不可达放行 与 批量入口 &gt; 「官网放行」偏好来自服务端：新会话（新 store）打开弹窗仍生效" time="0.5008121">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 官网不可达放行 与 批量入口 &gt; 设置页改了偏好：同一个 store，重开弹窗立刻用新值" time="0.3657508">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 官网不可达放行 与 批量入口 &gt; 默认勾选页面跟随服务端偏好" time="0.4475078">
+        </testcase>
+        <testcase classname="src/components/CompetitorFormDialog.spec.ts" name="添加竞品 - 官网不可达放行 与 批量入口 &gt; 重新寻找的行内结果：未找到=miss，找到=found" time="0.5220138">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/EventDetailDrawer.spec.ts" timestamp="2026-09-22T02:14:47.929Z" hostname="DESKTOP-3P9I9BK" tests="2" failures="0" errors="0" skipped="0" time="0.277544">
+        <testcase classname="src/components/EventDetailDrawer.spec.ts" name="事件详情抽屉 - 等待态 &gt; 加载中渲染骨架屏，而不是空白的抽屉" time="0.2043666">
+        </testcase>
+        <testcase classname="src/components/EventDetailDrawer.spec.ts" name="事件详情抽屉 - 等待态 &gt; 加载完成后渲染真实详情，骨架屏消失" time="0.0707512">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/composables/useSession.spec.ts" timestamp="2026-09-22T02:14:47.930Z" hostname="DESKTOP-3P9I9BK" tests="3" failures="0" errors="0" skipped="0" time="1.543286">
+        <testcase classname="src/composables/useSession.spec.ts" name="会话看守 - 30 天令牌提醒定时器 &gt; 30 天令牌：排定后立即推进几秒不得弹窗（回归：setTimeout 溢出立即触发）" time="0.0096867">
+        </testcase>
+        <testcase classname="src/composables/useSession.spec.ts" name="会话看守 - 30 天令牌提醒定时器 &gt; 30 天令牌：整段寿命内不弹，逼近到期前 5 分钟才弹一次" time="1.5293324">
+        </testcase>
+        <testcase classname="src/composables/useSession.spec.ts" name="会话看守 - 30 天令牌提醒定时器 &gt; 已过期的令牌：启动看守立即强制登出，不弹提醒" time="0.0012731">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/router/guard.spec.ts" timestamp="2026-09-22T02:14:47.931Z" hostname="DESKTOP-3P9I9BK" tests="7" failures="0" errors="0" skipped="0" time="0.0107219">
+        <testcase classname="src/router/guard.spec.ts" name="resolveRoleRedirect 角色守卫 &gt; 普通用户访问管理页 → 重定向工作台" time="0.0044723">
+        </testcase>
+        <testcase classname="src/router/guard.spec.ts" name="resolveRoleRedirect 角色守卫 &gt; 管理员访问管理页 → 放行" time="0.0008294">
+        </testcase>
+        <testcase classname="src/router/guard.spec.ts" name="resolveRoleRedirect 角色守卫 &gt; 管理员访问用户业务页 → 重定向平台总览" time="0.0005068">
+        </testcase>
+        <testcase classname="src/router/guard.spec.ts" name="resolveRoleRedirect 角色守卫 &gt; 普通用户访问用户业务页 → 放行" time="0.0003946">
+        </testcase>
+        <testcase classname="src/router/guard.spec.ts" name="resolveRoleRedirect 角色守卫 &gt; 管理员访问用户中心（Setting?tab=account）→ 例外放行" time="0.0004206">
+        </testcase>
+        <testcase classname="src/router/guard.spec.ts" name="resolveRoleRedirect 角色守卫 &gt; 管理员访问不带 account 的 Setting → 重定向平台总览" time="0.0005092">
+        </testcase>
+        <testcase classname="src/router/guard.spec.ts" name="resolveRoleRedirect 角色守卫 &gt; 无角色 meta 的页面 → 不做角色拦截" time="0.000461">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/stores/event.spec.ts" timestamp="2026-09-22T02:14:47.934Z" hostname="DESKTOP-3P9I9BK" tests="2" failures="0" errors="0" skipped="0" time="0.0211287">
+        <testcase classname="src/stores/event.spec.ts" name="event store 请求竞态守卫 &gt; 列表：慢的旧响应不覆盖新结果" time="0.0149803">
+        </testcase>
+        <testcase classname="src/stores/event.spec.ts" name="event store 请求竞态守卫 &gt; 详情：旧详情不覆盖新详情" time="0.0032448">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/stores/notification.spec.ts" timestamp="2026-09-22T02:14:47.935Z" hostname="DESKTOP-3P9I9BK" tests="3" failures="0" errors="0" skipped="0" time="0.0188953">
+        <testcase classname="src/stores/notification.spec.ts" name="通知中心 - 只显示未读 &gt; 拉取后 unreadList 只含未读，已读的仍在 store 但不出现" time="0.0122119">
+        </testcase>
+        <testcase classname="src/stores/notification.spec.ts" name="通知中心 - 只显示未读 &gt; 标记单条已读 → 该条从列表消失，未读数减少" time="0.0023227">
+        </testcase>
+        <testcase classname="src/stores/notification.spec.ts" name="通知中心 - 只显示未读 &gt; 全部已读 → 列表清空、角标归零" time="0.0019876">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/stores/report.spec.ts" timestamp="2026-09-22T02:14:47.937Z" hostname="DESKTOP-3P9I9BK" tests="1" failures="0" errors="0" skipped="0" time="0.0180051">
+        <testcase classname="src/stores/report.spec.ts" name="report store 请求竞态守卫 &gt; 详情：旧详情不覆盖新详情" time="0.0145347">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/utils/dateRange.spec.ts" timestamp="2026-09-22T02:14:47.938Z" hostname="DESKTOP-3P9I9BK" tests="5" failures="0" errors="0" skipped="0" time="0.0117917">
+        <testcase classname="src/utils/dateRange.spec.ts" name="formatDate &gt; 补零成 YYYY-MM-DD" time="0.0032508">
+        </testcase>
+        <testcase classname="src/utils/dateRange.spec.ts" name="quickRangeDates &gt; 「今天」= 当天到当天" time="0.0023566">
+        </testcase>
+        <testcase classname="src/utils/dateRange.spec.ts" name="quickRangeDates &gt; 近 7 / 30 / 90 天的起止日期" time="0.0011546">
+        </testcase>
+        <testcase classname="src/utils/dateRange.spec.ts" name="quickRangeDates &gt; 跨度天数与预设名字一致（含今天）" time="0.0009053">
+        </testcase>
+        <testcase classname="src/utils/dateRange.spec.ts" name="quickRangeDates &gt; 未知 key（页面里 &apos;&apos; 表示自定义区间）返回 null" time="0.0005032">
+        </testcase>
+    </testsuite>
+</testsuites>

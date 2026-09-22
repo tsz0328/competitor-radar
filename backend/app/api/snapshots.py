@@ -45,13 +45,13 @@ async def snapshot_raw(
         )
     ).first()
     if row is None:
-        raise BusinessError(ERR_SNAPSHOT_MISSING, "快照不存在", 404)
+        raise BusinessError(ERR_SNAPSHOT_MISSING, "快照不存在或已被清理，请刷新后重试", 404)
 
     snapshot, owner_id = row
     if owner_id != current_user.id:
-        raise BusinessError(ERR_SNAPSHOT_MISSING, "快照不存在", 404)
+        raise BusinessError(ERR_SNAPSHOT_MISSING, "快照不存在或已被清理，请刷新后重试", 404)
     if not snapshot.raw_html_path:
-        raise BusinessError(ERR_SNAPSHOT_MISSING, "该快照没有留存原始页面", 404)
+        raise BusinessError(ERR_SNAPSHOT_MISSING, "该快照未留存原始页面（快照仅保存文本内容），无法查看原始页面", 404)
 
     # 库里存的是相对 backend 根目录的路径（如 storage/6/10_xxx.html），故基准取 storage 的上级
     storage_root = Path(get_settings().storage_dir).resolve()
@@ -59,9 +59,9 @@ async def snapshot_raw(
     target = (base / snapshot.raw_html_path).resolve()
     # 防目录穿越：必须仍落在 storage 目录内，且确实是文件
     if storage_root != target.parent and storage_root not in target.parents:
-        raise BusinessError(ERR_SNAPSHOT_MISSING, "该快照没有留存原始页面", 404)
+        raise BusinessError(ERR_SNAPSHOT_MISSING, "该快照未留存原始页面（快照仅保存文本内容），无法查看原始页面", 404)
     if not target.is_file():
-        raise BusinessError(ERR_SNAPSHOT_MISSING, "该快照没有留存原始页面", 404)
+        raise BusinessError(ERR_SNAPSHOT_MISSING, "该快照未留存原始页面（快照仅保存文本内容），无法查看原始页面", 404)
 
     html = target.read_text(encoding="utf-8", errors="replace")
     return HTMLResponse(content=html, headers={"Content-Security-Policy": _SAFE_CSP})

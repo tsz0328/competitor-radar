@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import (
     admin,
+    announcements,
     auth,
     competitors,
     crawl_logs,
@@ -166,6 +167,7 @@ app.include_router(llm.router)
 app.include_router(setting.router)
 app.include_router(auth.router)
 app.include_router(admin.router)
+app.include_router(announcements.router)
 app.include_router(competitors.router)
 app.include_router(sources.router)
 app.include_router(events.router)

@@ -10,7 +10,7 @@ class RenderMode(str, enum.Enum):
 
 
 class SourceType(str, enum.Enum):
-    """v1 支持的 8 种数据源（白名单见 docs/positioning.md）。"""
+    """v1 支持的 9 种数据源：8 个预设白名单 + 1 个自定义页面。"""
 
     HOMEPAGE = "homepage"
     PRICING = "pricing"
@@ -20,6 +20,7 @@ class SourceType(str, enum.Enum):
     STATUS = "status"
     RSS = "rss"
     APP_STORE = "app_store"
+    CUSTOM = "custom"  # 用户自定义页面：名称由前端提交（MonitorSource.name）
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,10 @@ SOURCE_TYPE_REGISTRY: dict[SourceType, SourceTypeConfig] = {
     ),
     SourceType.APP_STORE: SourceTypeConfig(
         "应用商店页", RenderMode.BROWSER, 1440, "store_block", "structured", "版本更新/评分波动"
+    ),
+    # 自定义页面：不参与 AI 分类/寻找，名称由用户填（MonitorSource.name），正文按普通页面提取
+    SourceType.CUSTOM: SourceTypeConfig(
+        "自定义页面", RenderMode.BROWSER, 1440, "trafilatura", "full_text", ""
     ),
 }
 

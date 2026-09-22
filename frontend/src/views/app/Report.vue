@@ -12,6 +12,7 @@ import {
   exportReportPdf,
   exportReportText,
   generateReport,
+  fetchReportGenerateStatus,
   deleteReport,
   createReportShare,
   revokeReportShare,
@@ -64,9 +65,22 @@ const activeTab = ref<"content" | "full" | "events" | "competitors" | "ai">("con
 
 onMounted(async () => {
   await reportStore.loadReportList();
+  restoreGeneratingState();
   const first = reportStore.reportList?.reports[0];
   if (first) selectReport(first.id);
 });
+
+/** 刷新/重进页面后，向后端查询是否还有报告在生成，恢复按钮的「生成中」状态 */
+async function restoreGeneratingState() {
+  try {
+    const status = await fetchReportGenerateStatus();
+    if (status.generating && !reportStore.generating) {
+      reportStore.generating = status.generating as "weekly" | "monthly";
+    }
+  } catch {
+    // 状态查询失败不阻塞页面：按钮按空闲态展示即可
+  }
+}
 
 function selectReport(id: number) {
   activeId.value = id;
@@ -94,6 +108,14 @@ const groupedReports = computed(() => {
 });
 
 const detail = computed(() => reportStore.reportDetail);
+
+/** 列表标题压缩：把「2026年第39周 竞品周报」显示成「2026年第39周报」、
+ *  「2026年9月 竞品月报」显示成「2026年9月报」；不符合该格式的标题原样返回。 */
+const SHORT_TITLE_RE = /^(\d{4}年第\d+周|\d{4}年\d+月)\s/;
+function shortTitle(r: ReportListItem): string {
+  const matched = r.title.match(SHORT_TITLE_RE);
+  return matched ? `${matched[1]}报` : r.title;
+}
 
 /** 当前详情是否为月报（用于"上周/上月"等环比措辞） */
 const detailIsMonthly = computed(() => detail.value?.typeLabel === "月报");
@@ -141,7 +163,8 @@ function motionWidth(changes: number): string {
 }
 
 // 手动生成周报/月报（定时生成由后端调度）
-const generating = ref<"" | "weekly" | "monthly">("");
+// 生成中状态放 report store：切换页面后按钮仍保持「生成中」，不丢状态
+const generating = computed(() => reportStore.generating);
 
 function applyGenerated(res: ReportGenerateResult) {
   const report = res.report ?? reportStore.reportDetail;
@@ -152,8 +175,8 @@ function applyGenerated(res: ReportGenerateResult) {
 }
 
 async function doGenerate(reportType: "weekly" | "monthly") {
-  if (generating.value) return;
-  generating.value = reportType;
+  if (reportStore.generating) return;
+  reportStore.generating = reportType;
   const typeLabel = reportType === "monthly" ? "月报" : "周报";
   try {
     const res = await generateReport(reportType);
@@ -163,7 +186,7 @@ async function doGenerate(reportType: "weekly" | "monthly") {
   } catch {
     // 失败提示由 request.ts 拦截器统一弹出
   } finally {
-    generating.value = "";
+    reportStore.generating = "";
   }
 }
 
@@ -323,7 +346,7 @@ async function onCopyShare() {
     await navigator.clipboard.writeText(shareUrl.value);
     ElMessage.success("分享链接已复制到剪贴板");
   } catch {
-    ElMessage.warning("复制失败，请手动选择复制");
+    ElMessage.warning("复制失败（浏览器安全限制），请手动选择后复制");
   }
 }
 
@@ -421,27 +444,30 @@ async function onRevokeShare() {
                 <el-icon><Document /></el-icon>
               </div>
               <div class="report-item-text">
-                <div class="report-item-title">{{ r.title }}</div>
-                <div class="report-item-meta">
-                  {{ r.range }} · {{ r.competitors }} 个竞品
+                <div class="report-item-title">{{ shortTitle(r) }}</div>
+                <div class="report-item-meta">{{ r.range }}</div>
+                <div class="report-item-meta-row">
+                  <span class="report-item-meta">{{ r.competitors }} 个竞品</span>
+                  <span class="report-item-actions">
+                    <el-icon
+                      class="report-item-star"
+                      :class="{ 'is-fav': r.favorite }"
+                      @click.stop="onToggleFavorite(r.id)"
+                    >
+                      <StarFilled v-if="r.favorite" />
+                      <Star v-else />
+                    </el-icon>
+                    <el-icon
+                      class="report-item-del"
+                      title="删除报告"
+                      @click.stop="onDeleteReport(r.id)"
+                    >
+                      <Delete />
+                    </el-icon>
+                  </span>
                 </div>
                 <div class="report-item-date">{{ r.generatedAt }} 生成</div>
               </div>
-              <el-icon
-                class="report-item-star"
-                :class="{ 'is-fav': r.favorite }"
-                @click.stop="onToggleFavorite(r.id)"
-              >
-                <StarFilled v-if="r.favorite" />
-                <Star v-else />
-              </el-icon>
-              <el-icon
-                class="report-item-del"
-                title="删除报告"
-                @click.stop="onDeleteReport(r.id)"
-              >
-                <Delete />
-              </el-icon>
             </div>
           </div>
           <el-empty
@@ -940,11 +966,33 @@ async function onRevokeShare() {
 .report-item-date {
   font-size: 0.9vmax;
   color: var(--app-color-gray);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 「15 个竞品」行：文字靠左、收藏/删除图标靠右，标题独占整行不被挤断 */
+.report-item-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6vw;
+  min-width: 0;
+}
+
+.report-item-meta-row .report-item-meta {
+  min-width: 0;
+}
+
+.report-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6vw;
+  flex-shrink: 0;
 }
 
 .report-item-star {
   font-size: 1.2vmax;
-  flex-shrink: 0;
 }
 
 .report-item-star.is-fav {
