@@ -19,14 +19,15 @@ let unreadTimer: ReturnType<typeof setInterval> | undefined;
 let es: EventSource | null = null;
 
 /**
- * 点开某条通知：跳到对应事件详情（复用 id 深链），并带 notify=1 标记。
- * 注意：这里**不**立即标记已读——改为等详情抽屉主数据加载成功后再标记
- * （见 Event.vue 的 onDetailLoaded + EventDetailDrawer 的 loaded 事件）。
+ * 点开某条通知：跳到对应事件详情（复用 id 深链，情报中心会自动打开右侧详情抽屉）。
+ * 注意：这里**不**立即标记已读——改为等情报中心的详情抽屉主数据加载成功后再标记
+ * （见 Event.vue 的 onDetailLoaded + EventDetailDrawer 的 loaded 事件）；
+ * 规则是「在情报中心看开了高优事件详情即已读」，不区分入口。
  * 否则详情加载失败时通知已被标已读、又从不归档的未读列表里消失，用户就再也找不回了。
  */
 function openNotification(id: number) {
   notifyVisible.value = false;
-  router.push({ name: "Event", query: { id: String(id), notify: "1" } });
+  router.push({ name: "Event", query: { id: String(id) } });
 }
 
 /** 打开通知中心（归档全量通知）：铃铛只列未读，这里进完整列表 */

@@ -15,7 +15,7 @@
  */
 import { ArrowDown, Bell, QuestionFilled } from "@element-plus/icons-vue";
 import Logo from "@/components/Logo.vue";
-import { NAV_MENUS } from "@/data/navMenu";
+import { USER_NAV_MENUS } from "@/data/navMenu";
 
 defineProps<{
   /** 当前高亮菜单，取值同真实路由 name */
@@ -44,7 +44,7 @@ const account = {
 
       <ul class="shell-menu">
         <li
-          v-for="m in NAV_MENUS"
+          v-for="m in USER_NAV_MENUS"
           :key="m.name"
           class="shell-menu-item"
           :class="{ 'shell-menu-item--on': m.name === activeMenu }"

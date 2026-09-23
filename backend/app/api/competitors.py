@@ -118,6 +118,27 @@ async def _with_change_counts(
     ]
 
 
+async def _self_heal_logos(
+    db: AsyncSession, competitors: list[Competitor], outs: list[CompetitorOut]
+) -> list[CompetitorOut]:
+    """读取时把每页竞品的 logo_url 对齐到图标库【当前】值（不写库）。
+
+    竞品的 logo_url 是「创建/改官网/抓取」时从图标库快照的缓存值，可能因创建时机
+    早于图标库收录而陈旧或为空，导致同一站点在不同记录上显示不同图标。这里在列表/
+    详情返回前一次性按页批量查图标库，用当前域名图标覆盖掉陈旧/空的 logo_url——
+    与「图标库是域名级事实源」的设计一致，且不影响任何写路径。
+    库里没有该域名的记录则保持原值（不强行改写）。
+    """
+    url_by_host = await icon_library.icon_url_by_domain(
+        db, [c.official_url or "" for c in competitors]
+    )
+    for competitor, out in zip(competitors, outs):
+        lib_url = url_by_host.get(icon_library.normalize_host(competitor.official_url))
+        if lib_url is not None:
+            out.logo_url = lib_url
+    return outs
+
+
 @router.post("/check-url", response_model=UrlCheckResult)
 async def check_source_url(
     _: Annotated[User, Depends(get_current_user)],
@@ -416,7 +437,8 @@ async def list_competitors(
         .order_by(Competitor.id)
     )
     competitors = list(result.scalars().all())
-    return await _with_change_counts(db, competitors)
+    outs = await _with_change_counts(db, competitors)
+    return await _self_heal_logos(db, competitors, outs)
 
 
 @router.get("/trash", response_model=list[CompetitorOut])
@@ -432,7 +454,8 @@ async def list_trash(
         .order_by(Competitor.deleted_at.desc())
     )
     competitors = list(result.scalars().all())
-    return await _with_change_counts(db, competitors)
+    outs = await _with_change_counts(db, competitors)
+    return await _self_heal_logos(db, competitors, outs)
 
 
 @router.post("/trash/{competitor_id}", response_model=CompetitorOut)
@@ -523,7 +546,14 @@ async def get_competitor(
     current_user: Annotated[User, Depends(get_current_user)],
     competitor_id: int,
 ):
-    return await _get_owned(db, competitor_id, current_user)
+    competitor = await _get_owned(db, competitor_id, current_user)
+    out = CompetitorOut.model_validate(competitor)
+    # 读取时对齐图标库当前值（与列表一致的防漂移逻辑）
+    url_by_host = await icon_library.icon_url_by_domain(db, [competitor.official_url or ""])
+    lib_url = url_by_host.get(icon_library.normalize_host(competitor.official_url))
+    if lib_url is not None:
+        out.logo_url = lib_url
+    return out
 
 
 @router.patch("/{competitor_id}", response_model=CompetitorOut)

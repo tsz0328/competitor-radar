@@ -156,6 +156,32 @@ export default [
     },
   },
   {
+    url: "/api/competitors/crawl-status",
+    method: "get",
+    timeout: 100,
+    response: ({ headers }: any) => {
+      // mock 抓取为同步完成，不存在「进行中」的后台抓取，故始终返回空列表
+      if (!requireUser(headers)) return err(40100, "未登录或登录已过期");
+      return ok({ competitorIds: [] });
+    },
+  },
+  {
+    url: "/api/competitors/trash",
+    method: "delete",
+    timeout: 300,
+    response: ({ headers }: any) => {
+      const u = requireUser(headers);
+      if (!u) return err(40100, "未登录或登录已过期");
+      const d = db();
+      const trashed = d.competitors.filter((c) => c.userId === u.id && c.deletedAt);
+      const ids = new Set(trashed.map((c) => c.id));
+      // 清空回收站：彻底删除竞品及其情报事件（抓取日志按产品口径保留，不清理）
+      d.competitors = d.competitors.filter((c) => !(c.userId === u.id && c.deletedAt));
+      d.events = d.events.filter((e) => !ids.has(e.competitorId));
+      return ok({ purged: trashed.length });
+    },
+  },
+  {
     url: "/api/competitors",
     method: "post",
     timeout: 300,

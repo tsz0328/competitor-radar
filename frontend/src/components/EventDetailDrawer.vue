@@ -157,12 +157,17 @@ function reloadRelated() {
   });
 }
 
-// 打开时加载；已打开的情况下切换事件也重新加载
+// 打开时加载；已打开的情况下切换事件也重新加载。
+// immediate 是关键：从通知/周报等深链跳进来时，父组件（Event.vue 的 applyQuery）
+// 会在 setup 阶段就同时设好 eventId 与 modelValue=true，子组件「挂载即已打开」。
+// 若 watch 不在挂载时触发，这条路径就永远不请求详情，抽屉一直停在「没能加载」，
+// 必须手点重试才恢复。immediate 让「挂载即打开」也立即加载。
 watch(
   () => [props.modelValue, props.eventId] as const,
   ([open, id]) => {
     if (open && id != null) loadDetail(id);
   },
+  { immediate: true },
 );
 </script>
 

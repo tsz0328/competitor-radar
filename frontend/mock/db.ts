@@ -144,6 +144,8 @@ interface DB {
   emailCodes: Record<string, string>;
   llmSetting: Record<string, any>;
   systemSettings: Record<string, any>;
+  announcements: any[];
+  auditLogs: any[];
   seq: Record<string, number>;
 }
 
@@ -162,6 +164,8 @@ function createDB(): DB {
       avatar: "",
       isAdmin: true,
       active: true,
+      createdAt: daysAgo(60),
+      lastLoginAt: hoursAgo(0),
       preferences: { allowUnreachableOfficial: false, defaultSourceTypes: ["homepage"] },
     },
     {
@@ -173,6 +177,8 @@ function createDB(): DB {
       avatar: "",
       isAdmin: false,
       active: true,
+      createdAt: daysAgo(45),
+      lastLoginAt: hoursAgo(24),
       preferences: { allowUnreachableOfficial: true, defaultSourceTypes: ["homepage", "pricing"] },
     },
     {
@@ -184,6 +190,8 @@ function createDB(): DB {
       avatar: "",
       isAdmin: false,
       active: true,
+      createdAt: daysAgo(40),
+      lastLoginAt: hoursAgo(48),
       preferences: { allowUnreachableOfficial: true, defaultSourceTypes: ["homepage", "pricing"] },
     },
     {
@@ -195,6 +203,8 @@ function createDB(): DB {
       avatar: "",
       isAdmin: false,
       active: true,
+      createdAt: daysAgo(20),
+      lastLoginAt: hoursAgo(96),
       preferences: { allowUnreachableOfficial: true, defaultSourceTypes: ["homepage", "pricing"] },
     },
   ];
@@ -558,7 +568,15 @@ function createDB(): DB {
       smtp_sender: "",
       smtp_password_set: false,
     },
-    seq: { competitor: nextCompetitorId, event: nextEventId, report: nextReportId, crawlLog: nextCrawlLogId, provider: 3, source: sourceId, user: 5 },
+    announcements: [
+      { id: 1, content: "欢迎使用竞品雷达，后续版本将持续迭代，敬请期待。", is_active: true, createdAt: hoursAgo(5) },
+    ],
+    auditLogs: [
+      { id: 1, adminUsername: "1614910065", action: "update_system_settings", targetType: "system_settings", targetId: null, detail: "更新 SMTP 发件配置", createdAt: hoursAgo(2) },
+      { id: 2, adminUsername: "1614910065", action: "create_announcement", targetType: "announcement", targetId: 1, detail: "发布平台公告", createdAt: hoursAgo(5) },
+      { id: 3, adminUsername: "1614910065", action: "update_user", targetType: "user", targetId: 2, detail: "修改用户 demo 的资料", createdAt: hoursAgo(20) },
+    ],
+    seq: { competitor: nextCompetitorId, event: nextEventId, report: nextReportId, crawlLog: nextCrawlLogId, provider: 3, source: sourceId, user: 5, announcement: 2, auditLog: 4 },
   };
 }
 
@@ -753,14 +771,38 @@ export function userProfile(user: any) {
 
 /** 抹掉明文密码的用户行（用户管理列表项 AdminUser 用，snake_case） */
 export function adminUser(user: any) {
+  const d = db();
+  const comps = d.competitors.filter((c: any) => c.userId === user.id && !c.deletedAt);
+  // 情报事件按竞品归属间接统计（含已软删竞品，历史留痕，与后端口径一致）
+  const events = d.events.filter((e: any) => {
+    const c = d.competitors.find((x: any) => x.id === e.competitorId);
+    return !!c && c.userId === user.id;
+  });
+  const reports = d.reports.filter((r: any) => r.userId === user.id && !r.deletedAt);
+  const logs = d.crawlLogs.filter((l: any) => l.userId === user.id);
   return {
     id: user.id,
     username: user.username,
     email: user.email || "",
     is_admin: user.isAdmin,
     is_active: user.active,
+    created_at: user.createdAt ? formatDateTime(user.createdAt) : "",
+    last_login_at: user.lastLoginAt ? formatDateTime(user.lastLoginAt) : "",
     password_length: user.password ? user.password.length : null,
+    competitor_count: comps.length,
+    event_count: events.length,
+    report_count: reports.length,
+    crawl_log_count: logs.length,
   };
+}
+
+/** 某用户拥有的竞品 id 集合（含已软删，供管理员统计其名下情报事件） */
+export function ownedCompetitorIdsAll(userId: number): Set<number> {
+  return new Set(
+    db()
+      .competitors.filter((c: any) => c.userId === userId)
+      .map((c: any) => c.id),
+  );
 }
 
 /** 新签发一个 token 并写入库 */

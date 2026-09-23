@@ -9,7 +9,7 @@
  * 已读时机沿用情报中心的安全策略：点开详情 → 抽屉主详情加载成功（emit loaded）
  * 才标已读；加载失败不标，通知仍留着、可重开重试。
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import {
   fetchNotifications,
@@ -32,6 +32,13 @@ const loading = ref(false);
 type TabKey = "all" | "unread" | "read";
 const tab = ref<TabKey>("all");
 
+// 前端分页（对已在内存的归档记录切片，不动接口）
+const currentPage = ref(1);
+const pageSize = ref(20);
+
+// 切标签时回到第一页，避免停留在越界页
+watch(tab, () => (currentPage.value = 1));
+
 const counts = computed(() => ({
   all: total.value,
   unread: unreadCount.value,
@@ -42,6 +49,12 @@ const filtered = computed(() => {
   if (tab.value === "unread") return records.value.filter((r) => !r.isRead);
   if (tab.value === "read") return records.value.filter((r) => r.isRead);
   return records.value;
+});
+
+/** 当前页切片：在 filtered 之上做客户端分页 */
+const paged = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  return filtered.value.slice(start, start + pageSize.value);
 });
 
 // 详情抽屉状态
@@ -55,6 +68,7 @@ async function loadArchive() {
     records.value = data.records;
     total.value = data.total;
     unreadCount.value = data.unread;
+    currentPage.value = 1;
   } finally {
     loading.value = false;
   }
@@ -89,9 +103,10 @@ async function markAll() {
 }
 
 function goToEvent(id: number) {
-  // 从通知中心点「去情报中心看」：带上 notify=1 复用情报中心的标已读深链
+  // 从通知中心点「去情报中心看」：带 id 深链过去，
+  // 由情报中心的详情抽屉加载成功后统一标已读（看开了高优事件即已读）
   detailVisible.value = false;
-  router.push({ name: "Event", query: { id: String(id), notify: "1" } });
+  router.push({ name: "Event", query: { id: String(id) } });
 }
 
 onMounted(loadArchive);
@@ -125,9 +140,9 @@ onMounted(loadArchive);
     </div>
 
     <div v-loading="loading" class="list-wrap card">
-      <template v-if="filtered.length">
+      <template v-if="paged.length">
         <div
-          v-for="n in filtered"
+          v-for="n in paged"
           :key="n.id"
           class="nc-item"
           :class="{ 'is-read': n.isRead }"
@@ -177,6 +192,24 @@ onMounted(loadArchive);
       </div>
     </div>
 
+    <div v-if="filtered.length" class="nc-pager card">
+      <el-pagination
+        background
+        :current-page="currentPage"
+        :page-size="pageSize"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="filtered.length"
+        layout="total, sizes, prev, pager, next, jumper"
+        @current-change="(p: number) => (currentPage = p)"
+        @size-change="
+          (s: number) => {
+            pageSize = s;
+            currentPage = 1;
+          }
+        "
+      />
+    </div>
+
     <EventDetailDrawer
       v-model="detailVisible"
       :event-id="detailId"
@@ -188,6 +221,9 @@ onMounted(loadArchive);
 
 <style scoped>
 .notify-center-page {
+  /* 撑满内容区高度，让列表在内部滚动而不是把整页撑长 */
+  height: 100%;
+  min-height: 0;
   padding: 1.2vmax 1.6vmax 2vmax;
   display: flex;
   flex-direction: column;
@@ -203,6 +239,7 @@ onMounted(loadArchive);
   align-items: center;
   justify-content: space-between;
   padding: 1vmax 1.4vmax;
+  flex-shrink: 0;
 }
 .head-left {
   display: flex;
@@ -228,14 +265,24 @@ onMounted(loadArchive);
   align-items: center;
   justify-content: space-between;
   padding: 0.7vmax 1.4vmax;
+  flex-shrink: 0;
 }
 .tabs-total {
   font-size: 0.85vmax;
   color: var(--app-text-color-placeholder);
 }
 .list-wrap {
+  /* 弹性填满剩余高度并自身滚动，头部/标签栏/分页器保持固定 */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 0.4vmax 0.6vmax;
-  min-height: 40vh;
+}
+.nc-pager {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.6vmax 1.4vmax;
 }
 .nc-item {
   display: flex;

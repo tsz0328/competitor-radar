@@ -273,6 +273,16 @@ export default [
     },
   },
   {
+    url: "/api/reports/generate-status",
+    method: "get",
+    timeout: 100,
+    response: ({ headers }: any) => {
+      // mock 生成为同步完成，不存在「进行中」的报告生成，故始终返回 null
+      if (!requireUser(headers)) return err(40100, "未登录或登录已过期");
+      return ok({ generating: null });
+    },
+  },
+  {
     url: "/api/reports/trash",
     method: "get",
     timeout: 200,

@@ -34,14 +34,6 @@ const notify = useNotificationStore();
 const route = useRoute();
 const router = useRouter();
 
-/**
- * 从通知中心带 notify=1 深链跳进来时，记录「这条 id 是要标已读的那条」，
- * 等详情抽屉 emit loaded（主详情加载成功）后再真正标记已读。
- * 这样：详情加载失败 → 不标已读 → 通知仍然在未读列表里、可重新点开重试。
- * 普通从列表/周报/相关事件打开的事件不带 notify，永远不触发标记已读。
- */
-const pendingNotifyId = ref<number | null>(null);
-
 // 详情抽屉的"打开哪一条"状态提前声明，便于 applyQuery 从 URL 的 id 直接定位
 const detailVisible = ref(false);
 const detailId = ref<number | null>(null);
@@ -132,11 +124,6 @@ function applyQuery() {
   if (idQ && Number.isFinite(idNum)) {
     detailId.value = idNum;
     detailVisible.value = true;
-    // 通知中心深链带 notify=1：这条 id 是「待标已读」的那条
-    pendingNotifyId.value = typeof q.notify === "string" ? idNum : null;
-  } else {
-    // 没有合法 id 时清掉待标已读态，避免脏状态残留
-    pendingNotifyId.value = null;
   }
 }
 
@@ -214,17 +201,21 @@ watch(
   () => applyQuery(),
 );
 
-// 筛选条件（不含分页）变化 → 回到第 1 页并重新拉取
+// 筛选条件（不含分页）变化 → 回到第 1 页并重新拉取。
+// 用序列化签名做「按值比较」：applyQuery 在 URL 变化时会重新赋值一批内容相同的
+// 数组（priorities/conf/range），若按引用比较会误判成"筛选变了"而多拉一次列表
+// （典型场景：关闭详情抽屉清掉 id/notify 参数时，列表会无谓地闪一下 loading）。
 watch(
-  () => ({
-    competitor: sideCompetitor.value,
-    category: activeCategory.value,
-    priorities: [...sidePriorities.value],
-    conf: [...sideConfidence.value],
-    keyword: appliedKeyword.value,
-    range: [...(dateRange.value ?? [])],
-    rangeKey: activeRange.value,
-  }),
+  () =>
+    JSON.stringify({
+      competitor: sideCompetitor.value,
+      category: activeCategory.value,
+      priorities: [...sidePriorities.value],
+      conf: [...sideConfidence.value],
+      keyword: appliedKeyword.value,
+      range: [...(dateRange.value ?? [])],
+      rangeKey: activeRange.value,
+    }),
   () => {
     page.value = 1;
     loadEvents();
@@ -258,26 +249,51 @@ function resetFilters() {
 function openDetail(record: EventRecord) {
   detailId.value = record.id;
   detailVisible.value = true; // 组件打开后自行加载，等待态由组件承接
-  pendingNotifyId.value = null; // 从列表打开的不是通知，不标记已读
 }
 
 // 抽屉内"相关事件"跳转：更新 eventId 即可，抽屉自身的 watch 会重新加载详情
 function onSelectRelated(id: number) {
   detailId.value = id;
-  pendingNotifyId.value = null; // 相关事件不是通知，不标记已读
 }
 
 /**
  * 抽屉主详情加载成功时回调（EventDetailDrawer emit loaded）。
- * 仅当这条 id 正是从通知中心带 notify=1 跳入的那条，才标记已读——
- * 详情加载失败不会触发本回调，自然也就不会把通知标成已读。
+ *
+ * 语义：**在情报中心看开了这条事件的详情，就等于「已读」这条通知**，
+ * 不区分入口（铃铛深链 / 列表「查看详情」/ 相关事件跳转）。
+ * 只有高优事件才会出现在通知里，中/低优无需写已读记录，直接跳过。
+ *
+ * 详情加载失败不会触发本回调，也就不标已读——通知仍留在未读列表里，可重开重试。
  */
-function onDetailLoaded(id: number) {
-  if (pendingNotifyId.value != null && id === pendingNotifyId.value) {
-    notify.markRead(id);
-    pendingNotifyId.value = null;
+async function onDetailLoaded(id: number) {
+  const d = eventStore.eventDetail;
+  if (d?.id !== id || d.priorityType !== "high") return;
+  try {
+    await notify.markRead(id);
+  } catch {
+    // 标已读失败不打断浏览（错误提示由 request.ts 拦截器统一弹出），
+    // 下次打开这条、或刷新页面会重新尝试。
   }
 }
+
+/**
+ * 关闭详情抽屉时清掉 URL 上的一次性深链参数（id，以及历史遗留的 notify）。
+ * 不清的话，刷新页面时 applyQuery 又会把 id 读出来 → 详情自动重新弹出。
+ * 只删这两个 key，其余筛选参数（date/category/competitorId…）原样保留，
+ * 保证"刷新后仍停留在同一筛选视图"，只是不再自动开详情。
+ * （notify 已不再由任何入口写入，保留删除仅为清理旧链接 / 书签。）
+ */
+function clearDetailQuery() {
+  if (route.query.id === undefined && route.query.notify === undefined) return;
+  const q = { ...route.query };
+  delete q.id;
+  delete q.notify;
+  router.replace({ name: "Event", query: q });
+}
+
+watch(detailVisible, (open) => {
+  if (!open) clearDetailQuery();
+});
 
 // 导出当前列表（已应用筛选/分页的记录），格式由下拉菜单选
 function onExport(format: EventExportFormat) {

@@ -94,6 +94,84 @@ async def test_apply_icon_ignores_unknown_domain(session) -> None:
     assert c.logo_url == ""
 
 
+# ==================== 批量查库 / 全量回填 ====================
+
+
+async def test_icon_url_by_domain_dedup_and_ignores_empty(session) -> None:
+    """批量命中图标库：去空去重，库里没有的域名不出现在结果里。"""
+    session.add(
+        IconLibrary(domain="feishu.cn", file_name="a.png", content_type="image/png", size=10)
+    )
+    await session.commit()
+
+    out = await icon_library.icon_url_by_domain(
+        session, ["https://www.feishu.cn", "feishu.cn", "", "unknown.com", None]
+    )
+    assert out == {"feishu.cn": "/api/icons/a.png"}
+
+
+async def test_backfill_resyncs_stale_logo_url(session) -> None:
+    """全量回填：把创建早于图标库收录、logo_url 陈旧的竞品重新对齐到库里当前图标。
+
+    这正是「同一站点（如 figma.com / www.figma.com）在不同用户的竞品上显示不同图标」
+    的根因修复——两条记录域名归一化后同属一个图标库 key，回填后 logo_url 一致。
+    """
+    alice = await _seed_user(session, "alice")
+    bob = await _seed_user(session, "bob")
+    # 两个用户各加一条 figma，官网写法不同（www / 无 www），但归一化后都是 figma.com
+    stale_a = await _seed_competitor(
+        session, alice.id, name="Figma", official_url="https://www.figma.com", logo_url=""
+    )
+    stale_b = await _seed_competitor(
+        session, bob.id, name="Figma", official_url="https://figma.com", logo_url=""
+    )
+    # 另一条无关竞品，库里没有它的域名，logo_url 应保持原样
+    untouched = await _seed_competitor(
+        session, bob.id, name="钉钉", official_url="https://www.dingtalk.com", logo_url=""
+    )
+    session.add(
+        IconLibrary(domain="figma.com", file_name="figma.png", content_type="image/png", size=10)
+    )
+    await session.commit()
+
+    changed = await icon_library.backfill_all_icons(session)
+
+    await session.refresh(stale_a)
+    await session.refresh(stale_b)
+    await session.refresh(untouched)
+    assert changed == 2
+    # 两条 figma 都对齐到同一图标，不再因创建时机/官网写法不同而分叉
+    assert stale_a.logo_url == "/api/icons/figma.png"
+    assert stale_b.logo_url == "/api/icons/figma.png"
+    # 库里没有 dingtalk.com，这条保持原样（空串）
+    assert untouched.logo_url == ""
+
+
+# ==================== 读取时自愈（列表/详情） ====================
+
+
+async def test_list_returns_library_icon_over_stale_logo(client, session) -> None:
+    """列表读取时自愈：记录的 logo_url 为空，但图标库已有该域名图标，应返回库里图标。
+
+    锁死「创建时机早于图标库收录 → 列表仍显示库里当前图标」这条用户可见的修复路径。
+    """
+    alice = await _seed_user(session, "alice")
+    await _seed_competitor(
+        session, alice.id, name="Figma", official_url="https://www.figma.com", logo_url=""
+    )
+    session.add(
+        IconLibrary(domain="figma.com", file_name="figma.png", content_type="image/png", size=10)
+    )
+    await session.commit()
+
+    r = await client.get("/api/competitors", headers=_auth(alice))
+    assert r.status_code == 200, r.text
+    items = r.json()
+    assert len(items) == 1
+    # 即使记录 logo_url 为空，读取时也对齐到图标库当前值，两个用户/写法都不会分叉
+    assert items[0]["logoUrl"] == "/api/icons/figma.png"
+
+
 # ==================== favicon 端点命库优先 ====================
 
 

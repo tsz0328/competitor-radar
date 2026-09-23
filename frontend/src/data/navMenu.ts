@@ -71,6 +71,3 @@ export const ADMIN_NAV_MENUS: NavMenuItem[] = [
   },
   { name: "AdminSettings", label: "系统设置", icon: Setting },
 ];
-
-/** 合并全量：给落地页演示外壳展示产品全貌（管理员 + 用户两套菜单） */
-export const NAV_MENUS: NavMenuItem[] = [...USER_NAV_MENUS, ...ADMIN_NAV_MENUS];

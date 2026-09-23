@@ -202,7 +202,7 @@ async def unread_count(
     current_user: Annotated[User, Depends(get_current_user)],
 ):
     """轮询专用：只回未读数，避免每次拉整页。"""
-    return UnreadCountOut(unread=await _count_unread(db, current_user))
+    return UnreadCountOut(unread=await _count_unread(db, current_user, _notification_cutoff_utc()))
 
 
 @router.get("/stream")
@@ -218,14 +218,14 @@ async def stream(
     async def event_gen():
         q = await bus.subscribe(current_user.id)
         try:
-            yield _sse(await _count_unread(db, current_user))
+            yield _sse(await _count_unread(db, current_user, _notification_cutoff_utc()))
             while True:
                 try:
                     await asyncio.wait_for(q.get(), timeout=30)
                 except asyncio.TimeoutError:
                     yield ": keep-alive\n\n"
                     continue
-                yield _sse(await _count_unread(db, current_user))
+                yield _sse(await _count_unread(db, current_user, _notification_cutoff_utc()))
         finally:
             await bus.unsubscribe(current_user.id, q)
 

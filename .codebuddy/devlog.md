@@ -208,4 +208,95 @@
 - 结果：`.codebuddy/` 存 `verify-dim-scene3.png` / `verify-dim-scene4.png`（新）与 `verify-blur-before.png`（旧模糊同状态对照）。观感上背景完全可读、画面更亮更干净；代价是聚光感变弱，焦点窗靠"彩色 vs 灰白 + 蓝框"区分。
 - 备注：`vue-tsc` 未跑（纯 CSS + 类名改名，且页面已实际渲染成功，四幕截图即证据）。
 
+### 2026-09-22 — 通知中心列表过长溢出：限高内部滚动 + 前端分页
+
+- 背景：用户反馈「通知中心的通知太多挤到页面下面去了」。
+- **根因**（`views/app/NotificationCenter.vue`）：列表容器 `.list-wrap` 只有 `min-height: 40vh`，**无 `max-height`、无 `overflow`**；同时页面根 `.notify-center-page` 未约束在内容区 `.main`（`.main` 已有 `flex:1; min-height:0` 限高）之内。通知一多，列表把整页撑高、溢出视口，头部与标签栏被顶出屏幕外。
+- 方案选择：给用户两档并写清代价 —— A 限高+内部滚动（纯 CSS、单文件、风险最低）；B 真分页（动接口/前端切片，改动更大）。**用户选「限高、内部滚动 + 分页」= A+B 合并**。
+- 操作（仅改 `NotificationCenter.vue` 一个文件）：
+  - 脚本：新增 `currentPage`/`pageSize=20`、`paged` 计算属性（在 `filtered` 之上 `slice` 切片）；`watch(tab)` 与 `loadArchive` 后重置 `currentPage=1`；`import watch`。
+  - 模板：`v-for` 由 `filtered` 改 `paged`；`list-wrap` 下方新增 `el-pagination`（`layout="total, sizes, prev, pager, next, jumper"`，`page-sizes=[10,20,50,100]`，`total=filtered.length`），放在滚动区**之外**保证翻页器常驻可见。
+  - 样式：`.notify-center-page` 加 `height:100%; min-height:0`；`.page-head`/`.tabs-bar`/`.nc-pager` 加 `flex-shrink:0`；`.list-wrap` 改 `flex:1; min-height:0; overflow-y:auto`。
+- 结果：头部、标签栏、分页器固定，只有列表在可视区内滚动；每页 20 条，客户端切片、不动接口。
+- 验收：`vue-tsc --noEmit` EXIT=0；`vitest run NotificationCenter.spec.ts` **5 tests passed**（用例仅 2 条记录 < 默认页长 20，不受分页影响）。
+- 备注：Bash 仍缺 coreutils（`ls`/`wc`/`head` 均 `command not found`，且 `cd /d/...` 报 null dir），本轮改用 PowerShell + `Out-File -Encoding utf8` 落盘再读（直接重定向会产出 UTF-16 被判为二进制文件）。
+
+### 2026-09-22 — 修复：通知深链跳情报中心首次必现「没能加载这条情报」
+
+- 背景：顶栏铃铛 → 点通知 → 跳情报中心打开右侧详情抽屉 → **第一次必定**显示「没能加载这条情报」,必须手点「重试」；关掉抽屉后刷新页面又会自动打开并同样报错。
+- **根因（确定性,非网络抖动）**：`Event.vue` 在 **setup 阶段** 调用 `applyQuery()`，从 URL 的 `id` 直接设 `detailId` + `detailVisible=true`；因此子组件 `EventDetailDrawer` 是「**挂载即已打开**」。但抽屉的加载写在 `watch(() => [modelValue, eventId], cb)` 且**未加 `immediate`** —— watch 挂载时不触发、只有 props 变化才触发 ⇒ 详情请求根本没发出去，`detailLoading=false`+`eventDetail=null` 命中模板 `v-else` ⇒ 停在错误态；点「重试」走 `retryLoad` 直呼 `loadDetail` 才成功。列表内「查看详情」是「关闭态→打开」的变化路径,所以那条路径一直正常 —— 只有深链（挂载即打开）必挂。
+- 修法（唯一正确解）：`EventDetailDrawer.vue` 的该 watch 加 **`{ immediate: true }`**。其余三个调用方（Dashboard / Trend / 通知中心）初始都是关闭态,immediate 首次回调 `open=false` 直接跳过,零影响。
+- 回归锁：`EventDetailDrawer.spec.ts` 新增「挂载即打开（深链场景）也会加载详情」用例（断言 `loadEventDetail` 被调用 + 文案不含「没能加载」）；并把原先那条**已过时**的注释（"watch 默认不在挂载时触发,必须'先关闭再打开'"）改为描述现状。
+- **可复用不变量**：凡「父组件在 setup 里就把"打开+目标 id"一并传下」的抽屉/弹窗，其加载 watch **必须 `immediate: true`**，否则深链路径静默不请求。判断口诀：加载触发点在 watch 里、且存在「挂载即打开」的入口 → 查 immediate。
+- 验收：`vitest run EventDetailDrawer.spec.ts NotificationCenter.spec.ts` → **10 tests passed**；`vue-tsc --noEmit` EXIT=0。
+- **续（同日,方案 B）**：关闭抽屉后 URL 仍带 `id`/`notify=1`，刷新会重新自动打开详情。给了 A(不动)/B(关时清参)/C(记住已消费) 三档，用户选 **B**。
+  - `Event.vue`：新增 `clearDetailQuery()` + `watch(detailVisible, open => !open && clear)`，用 `router.replace` 只删 `id`/`notify`、**保留其它筛选参数**（刷新后仍停在同一筛选视图）。
+  - **顺带消掉一个副作用**：`router.replace` 会触发 `watch(() => route.query) → applyQuery()`，而 applyQuery 会重新赋值一批内容相同的数组（priorities/conf/range）⇒ 原「按引用比较」的筛选 watcher 会误判成"筛选变了"、多拉一次列表（关闭抽屉时列表无谓闪一下 loading）。改法：筛选 watcher 的 getter 包一层 `JSON.stringify(...)` 做**按值比较**，从此内容没变就不重拉。
+  - 验收：全量 `vitest run` → **10 files / 84 tests passed**；`vue-tsc --noEmit` EXIT=0。
+  - 未新增 Event.vue 的 spec（该文件原本无测试文件，单独为其搭一套挂载测试成本偏高）；本次靠全量回归 + 类型检查兜底。
+
+### 2026-09-22 — 修复：情报中心直接看详情不标已读（+ 清理失效的 notify=1 参数）
+
+- 背景：用户反馈「直接在情报中心查看这条消息，顶栏铃铛与通知中心里仍是未读状态」。
+- 根因：`Event.vue` 的 `onDetailLoaded` 只在 `id === pendingNotifyId`（即从铃铛带 `notify=1` 深链跳入）时才 `notify.markRead`。而从列表点「查看详情」走 `openDetail()`，会把 `pendingNotifyId` 置空 ⇒ 详情加载成功也不标已读。后端 `POST /notifications/{id}/read` 只校验事件归属本人（**不要求高优**），给高优事件补标完全可行。
+- 方案（用户定夺）：范围=**仅情报中心**（不把逻辑收进公共抽屉，工作台/趋势页保持不标）；并**顺手清理**失效的 `notify=1` 参数与 `pendingNotifyId` 死代码。
+- 改动：
+  - `views/app/Event.vue`：`onDetailLoaded` 改为「打开的是高优事件（`eventStore.eventDetail.priorityType === "high"`）就标已读」，不区分入口；移除 `pendingNotifyId` 及其 3 处赋值；`clearDetailQuery` 注释注明 notify 属历史遗留（保留删除以清理旧链接/书签）。
+  - `layouts/AppLayout/TopBar.vue`：`openNotification` 跳转去掉 `notify:"1"`，注释同步。
+  - `views/app/NotificationCenter.vue`：`goToEvent` 跳转去掉 `notify:"1"`，注释同步。
+  - `views/app/NotificationCenter.spec.ts`：深链用例断言由 `{id:"2",notify:"1"}` 改为 `{id:"2"}`，标题同步。
+- **不变量（可复用）**：通知=高优事件；「看开详情即已读」只看事件优先级（high），与入口无关。若日后要求「任何页面看详情都标已读」，应把该逻辑收进公共 `EventDetailDrawer`，并拆掉通知中心页自己那套标已读（否则重复请求）。
+- 验收：全量 `vitest run` → **10 files / 84 tests passed**；`vue-tsc --noEmit` EXIT=0。
+- **排障记录（重要）**：本轮出现「Edit 报成功但未落盘」（前后读到互斥版本）。查明：**Bash 工具运行在沙箱/镜像目录**（其 `git status` 恒为干净 HEAD、`cd /d/...` 报 null directory），**不等于真实工作区**；真实工作区在 `D:\project\competitor-radar`。结论：**核验改动一律用 PowerShell 在真实工作区做**（`Set-Location` + `Select-String`/`Get-FileHash`），别信 Bash 里的 git 状态。最终逐条复核，四处改动均已在真实磁盘落盘。
+
+### 2026-09-22 — 修复：周报「事件类型分布」环图被裁 + 与图例重叠（DonutChart 改像素自适应）
+
+- 背景：用户反馈周报页「四、按类别统计」的环图「显示不完整被裁剪，右边图例和左边的图靠太近重叠」。
+- 根因（可量化）：`components/Charts/DonutChart.vue` 两个参数的**百分比基准不同**——
+  - `series.radius: ["55%","80%"]` 的基准是 `min(容器宽, 容器高)/2`；卡片高固定 220px、宽 > 220px ⇒ **外半径恒为 88px，与容器宽无关**；
+  - `series.center: ["28%","50%"]` 的基准是**容器宽**。
+  于是容器宽 `W < 约 314px` 时圆心 `0.28W` 小于半径 ⇒ **圆左侧溢出被裁**；右侧 `0.28W + 88` 又顶进 `legend: { right: 0 }` 的图例区。窗口越窄（`.chart-grid` 是 `repeat(3,1fr)`）越严重。
+- 实测（echarts 6.1.0 SVG 服务端渲染，`.codebuddy/donut-probe.mjs`）：
+
+  | 容器宽 | 改前：左裁 / 与图例重叠 | 改后：左留白 / 与图例间隙 |
+  |---|---|---|
+  | 240px | 20.8px / 51px | 8px / 26.2px |
+  | 280px（用户截图情形） | 9.6px / 22.2px | 8px / 26.2px |
+  | 320px 及以上 | 0 / 0 | 8px / 26.2px |
+
+- 方案（用户定夺，选 **A：保持「左图右图例」设计，做像素自适应**）：放弃百分比，改为组件内 `ResizeObserver` 量容器实际宽高，用**像素**给 `center`/`radius` 定位：
+  - 图例占宽 = 最长图例文案宽度（`textWidth` 按全角 1em / 西文 0.56em 估算）+ 圆点 10 + 图标间距 5 + 右留白 6；
+  - `plotW = max(40, W - legendW)`、`cx = plotW / 2`、`rOuter = max(12, min(cx - 8, h/2 - 8))`、`rInner = rOuter * 0.66`；
+  - 由 `cx - rOuter ≥ 8` 且 `cx + rOuter ≤ plotW - 8` 直接推出左右都不溢出，图例左边界 = `plotW` ⇒ **间隙恒 ≥ 8px**；
+  - `v-chart` 加 `v-if="box.w && box.h"`，量到尺寸才渲染，避免首帧用 0 宽算出错误布局；卸载时断开 `ResizeObserver`。
+  - 丢弃的方案：B「只调参数」（比例耦合还在，极窄仍裁）；C「图例移到下方横排」（5 项需折 4 行，要连带加高卡片并调整另外两张图的对齐，改动最大）。
+- **不变量（可复用）**：ECharts pie 的 `radius` 以 `min(宽,高)/2` 为基准、`center` 以宽/高为基准，**两者基准不同**——凡「图 + 右侧垂直图例」的窄卡片，都别用这对百分比组合。同目录 `RankBarChart` / `CompareLineChart` 若出现同类症状，照此办理。
+- 核对工具：`.codebuddy/donut-probe.mjs`（用前端依赖的 echarts 在 Node 里 SSR 出 SVG，从 `<text>` 的 `transform="translate(tx,ty)"` 量图例左边界）。**坑：SVG `<text>` 的 `x=` 只是局部偏移，不是绝对坐标**——首版用它量出 `Infinity`，改正后才对上（改前 280px 实测叠 22.2px，与手算 21px 吻合）。
+- 验证：6 种容器宽度（240/280/320/360/420/520px）**全部 0 裁 0 叠**；组件估算的图例文案宽 133px（含图标与间距共 154px）比 SSR 实测的 135.8px **偏保守**，留有余量。
+- 验收：`vue-tsc --noEmit` EXIT=0；全量 `vitest run` **10 files / 84 tests passed**。
+- 影响面：该组件全项目只有 `views/app/Report.vue:627` 一处使用，且原本无单测。副作用（知情）：环图在窄卡片里比原来小（280px 下外半径 55px，原为 88px 但被裁），属方案 A 的既定代价。
+
+### 2026-09-23 — 修复：同站点不同用户竞品图标不一致（www 差异 + 创建时机快照）
+
+- 背景：用户问「两个用户 2080097896、3916408482 的同一个竞品 Figma 的图标不一样」。后确认两用户填的官网不同：一个是 `https://www.figma.com`、另一个是 `https://figma.com`，但两者最终都跳转到 `https://www.figma.com`。
+- **根因澄清（纠正上一轮误判）**：后端 `normalize_host`（icon_library.py:39）与前端 `CompetitorLogo.vue:26` **都已去 www+小写**，所以 `www.figma.com` 与 `figma.com` 在系统里本是**同一个 key**（`figma.com`）——www 差异**不是**成因（上一轮我误判「域名不同→图标库 key 不同」）。
+- 真正成因：`logo_url` 是「创建/改官网/恢复/抓取」那一刻从图标库快照的缓存值（`apply_icon_for_competitor` 只在 `competitors.py:396/551/379`、`analyzer.py:105` 触发），**读取列表/详情不重算**。两用户 figma 记录在不同时机被触碰，当时图标库 `figma.com` 的内容不同（或还没有）⇒ 一个拿到库里图标、另一个留空/陈旧 ⇒ 前端回退实时探测（真 favicon 或首字母"F"），于是两边不一样。
+- 方案（用户定夺：**A + B 一并做**）：
+  - **A 一次性回填**：新增 `icon_library.backfill_all_icons(db)`，对全部未删除竞品重跑 `apply_icon_for_competitor`，把 `logo_url` 重新对齐到图标库当前值（**不发起网络请求**），返回改动数；并暴露成管理员端点 `POST /api/admin/icons/backfill`（response `BackfillIconsOut{changed}`）——用户在本机运行实例调一次即可把存量记录（含这两个用户）对齐。
+  - **B 读取时自愈（根治）**：新增 `icon_library.icon_url_by_domain(db, domains)`（批量查库、去空去重，列表页一次 `IN` 查询）；`api/competitors.py` 新增 `_self_heal_logos(db, orm_list, outs)`，在列表/回收站/详情返回前把 `logo_url` 对齐到图标库当前值（**只改响应、不写库**）；`list_competitors` / `list_trash` / `get_competitor` 均接入。以后任何记录永远显示该域名当前图标，不再因创建时机分叉。
+- 设计一致性：B 与「图标库是域名级事实源」一致；管理员「上传/重新获取图标」仍写库并广播同域名，不被覆盖。
+- 回归测试（test_icon_library.py 新增 3 条）：`test_backfill_resyncs_stale_logo_url`（两用户 figma 经回填后 logo_url 一致）、`test_icon_url_by_domain_dedup_and_ignores_empty`、`test_list_returns_library_icon_over_stale_logo`（列表返回库图标）。
+- 验收：后端 pytest（图标/管理员/事件 logo 相关）**79 passed**；`app.main` 导入 OK。改动文件：backend 3 处（icon_library.py / competitors.py / admin.py）+ test 1 处。
+- 已知边界：`backfill_all_icons` 只把库里**已有**域名图标推送给记录；若某记录 `logo_url` 指向文件已删、而库里又无该域名，不会被清理（不属于本次「图标不一致」范畴，未扩大改动面）。
+
+### 2026-09-23 — 补：管理员端平台列表也算上自愈 + 直接回填真实库
+
+- 复现：用户在管理员「平台列表」看到两个 Figma 图标不同（id=2 用库 png、`/api/icons/25bb…png`；id=20 用外链 `https://static.figma.com/favicon.svg`）。直查真实库 `backend/dev.db` 确认：`icon_libraries` 有 `figma.com→25bb…png`；id=20 那条走过「重新获取」（`admin.py:727`）抓到 SVG，因图标库拒收 SVG（XSS）退化为外链写进该记录（`admin.py:755-758`）→ 与库分叉。
+- **上轮 B 未覆盖管理端**：`GET /api/admin/competitors`（list_all_competitors）此前没接 `_self_heal_logos`，只接了用户端三接口。本次补上。
+- 改动：`admin.py` import 行加 `_self_heal_logos`；`list_all_competitors` 在 `_with_change_counts` 之后、`AdminCompetitorOut` 包装之前插入 `await _self_heal_logos(db, rows, items)`（就地改 `out.logo_url`，随后 `item.model_dump()` 已含新值）。
+- 回填（用户拍板 1+2 中的 1）：直接对 `backend/dev.db` 跑应用自身的 `icon_library.backfill_all_icons`（无需后端重启、无网络请求），**CHANGED=2**——id=20 的 Figma 外链→库 png（与 id=2 一致），另把 id=24 等对齐到库 png。图标文件 `backend/storage/icons/25bb…png` 确认在盘、可加载。
+- 验收：`py_compile admin.py` 通过；图标/管理员相关 pytest **79 passed**。
+- 生效说明：数据回填后**无需重启**即生效（列表每请求读库）；自愈代码需重启后端加载。临时脚本 `.codebuddy/run_backfill.py` 已删。
+
+
 

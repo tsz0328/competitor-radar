@@ -49,7 +49,7 @@ from app.models import (
     User,
     WeeklyReport,
 )
-from app.api.competitors import _with_change_counts
+from app.api.competitors import _self_heal_logos, _with_change_counts
 from app.core.event_types import EVENT_TYPE_LABELS
 from app.schemas.competitor import CompetitorOut
 from app.services import admin_stats, favicon, icon_library, notifier
@@ -575,6 +575,14 @@ class IconUploadOut(BaseModel):
     logo_url: str
 
 
+class BackfillIconsOut(BaseModel):
+    """全量回填竞品图标的结果。"""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    changed: int
+
+
 class AdminCompetitorPage(BaseModel):
     """全部竞品分页响应。"""
 
@@ -621,8 +629,13 @@ async def list_all_competitors(
             ).scalars().all()
         }
 
+    items = await _with_change_counts(db, rows)
+    # 读取时把 logo_url 对齐到图标库当前值（与用户端列表/详情一致的自愈逻辑），
+    # 避免管理端平台列表展示陈旧/外链的图标（如「重新获取」抓到 SVG 退化成的外链）。
+    await _self_heal_logos(db, rows, items)
+
     out: list[AdminCompetitorOut] = []
-    for item in await _with_change_counts(db, rows):
+    for item in items:
         owner = users.get(item.user_id)
         out.append(
             AdminCompetitorOut(
@@ -773,6 +786,29 @@ async def refresh_competitor_icon(
     await cache.delete(f"favicon:www.{host}")
 
     return IconUploadOut(logo_url=logo_url)
+
+
+@router.post("/icons/backfill", response_model=BackfillIconsOut)
+async def backfill_competitor_icons(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    admin: Annotated[User, Depends(get_current_admin)],
+):
+    """全量回填竞品图标：把所有未删除竞品的 logo_url 重新对齐到图标库当前值。
+
+    与「上传/重新获取图标」不同，本接口不发起任何网络请求，只把图标库已有域名图标
+    重新推送到各竞品记录——用于消除「竞品创建/编辑早于图标库收录该域名」的存量不一致
+    （同一站点因创建时机不同而显示不同图标）。返回被改动的记录数，便于确认影响面。
+    """
+    changed = await icon_library.backfill_all_icons(db)
+    _write_audit(
+        db,
+        admin,
+        "backfill_competitor_icons",
+        "icon_library",
+        0,
+        f"全量回填竞品图标，改动 {changed} 条",
+    )
+    return BackfillIconsOut(changed=changed)
 
 
 # ==================== 审计日志（仅管理员） ====================

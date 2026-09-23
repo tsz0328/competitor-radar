@@ -34,6 +34,7 @@ export default [
       const user = findByIdentifier(account);
       if (!user || user.password !== password) return err(40101, "账号或密码错误");
       if (!user.active) return err(40104, "账号已被停用");
+      user.lastLoginAt = new Date().toISOString();
       return ok({ token: mintToken(user.id), user: userBrief(user) });
     },
   },
@@ -69,6 +70,8 @@ export default [
         avatar: "",
         isAdmin: false,
         active: true,
+        createdAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString(),
         preferences: { allowUnreachableOfficial: false, defaultSourceTypes: ["homepage"] },
       };
       d.users.push(user);
@@ -117,10 +120,13 @@ export default [
           avatar: "",
           isAdmin: false,
           active: true,
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
           preferences: { allowUnreachableOfficial: false, defaultSourceTypes: ["homepage"] },
         };
         d.users.push(user);
       }
+      user.lastLoginAt = new Date().toISOString();
       return ok({ token: mintToken(user.id), user: userBrief(user) });
     },
   },

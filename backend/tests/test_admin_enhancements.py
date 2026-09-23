@@ -439,7 +439,9 @@ async def test_admin_reports_list(client, session) -> None:
     await session.commit()
 
     resp = await client.get(
-        "/api/admin/reports", headers=_auth(admin), params={"page": 1, "page_size": 10}
+        "/api/admin/reports",
+        headers=_auth(admin),
+        params={"page": 1, "page_size": 10, "include_deleted": True},
     )
     assert resp.status_code == 200
     body = resp.json()

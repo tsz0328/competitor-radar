@@ -13,6 +13,7 @@ host 计算、schemas 里 favicon 回退的 host 提取保持一致。
 import httpx
 import logging
 import uuid
+from collections.abc import Iterable
 from pathlib import Path
 
 from sqlalchemy import select
@@ -79,6 +80,50 @@ async def find_by_domain(db: AsyncSession, domain: str) -> IconLibrary | None:
         return None
     result = await db.execute(select(IconLibrary).where(IconLibrary.domain == host))
     return result.scalar_one_or_none()
+
+
+async def icon_url_by_domain(db: AsyncSession, domains: Iterable[str]) -> dict[str, str]:
+    """批量查图标库：返回 {规范化域名: 后端托管的图标地址}。
+
+    用于列表页一次性对齐同页所有竞品的图标，避免 N 次逐条查询。
+    入参可含空串/重复，内部自动去空去重；库里没有的域名不会出现在结果里。
+    """
+    hosts = {normalize_host(d) for d in domains}
+    hosts.discard("")
+    if not hosts:
+        return {}
+    rows = (
+        await db.execute(
+            select(IconLibrary.domain, IconLibrary.file_name).where(
+                IconLibrary.domain.in_(hosts)
+            )
+        )
+    ).all()
+    return {domain: public_icon_url(file_name) for domain, file_name in rows}
+
+
+async def backfill_all_icons(db: AsyncSession) -> int:
+    """对所有未删除竞品重跑 apply_icon_for_competitor，把 logo_url 对齐到图标库当前值。
+
+    用于消除「竞品创建/编辑早于图标库收录该域名」的存量不一致——那时 logo_url
+    留空或陈旧，前端回退到实时探测，导致同一站点在不同记录上显示不同图标。
+    本函数不发起任何网络请求，只把图标库的【当前】状态重新推送到各竞品记录。
+    返回被改动的记录数（便于调用方确认影响面）。
+    """
+    from app.models import Competitor  # 延迟导入，避免与 models 形成循环依赖
+
+    result = await db.execute(
+        select(Competitor).where(Competitor.deleted_at.is_(None))
+    )
+    competitors = list(result.scalars().all())
+    changed = 0
+    for competitor in competitors:
+        before = competitor.logo_url
+        await apply_icon_for_competitor(db, competitor)
+        if competitor.logo_url != before:
+            changed += 1
+    await db.commit()
+    return changed
 
 
 async def apply_icon_for_competitor(db: AsyncSession, competitor) -> None:

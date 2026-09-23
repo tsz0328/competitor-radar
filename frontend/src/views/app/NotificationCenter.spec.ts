@@ -142,7 +142,7 @@ describe("NotificationCenter 通知中心页", () => {
     expect(w.findAll(".nc-item").length).toBe(0);
   });
 
-  it("「情报中心」按钮跳转到事件详情深链（带 notify=1）", async () => {
+  it("「情报中心」按钮跳转到事件详情深链（带 id）", async () => {
     const w = mountPage();
     await flushPromises();
 
@@ -154,7 +154,7 @@ describe("NotificationCenter 通知中心页", () => {
 
     expect(mocks.push).toHaveBeenCalledWith({
       name: "Event",
-      query: { id: "2", notify: "1" },
+      query: { id: "2" },
     });
   });
 });

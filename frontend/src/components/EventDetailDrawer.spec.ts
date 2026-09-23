@@ -63,9 +63,9 @@ function mountDrawer() {
 }
 
 /**
- * 注意：抽屉的加载逻辑在 watch([modelValue, eventId]) 里，而 watch 默认不在挂载时触发，
- * 必须"先关闭再打开"或改 eventId 才会真正跑 loadDetail。所以这两个用例都先挂载成关闭态，
- * 再 setProps 打开，确保 loadDetail 被调用。
+ * 模拟「先挂载成关闭态、再打开」的常规路径（列表点「查看详情」即如此）。
+ * 注意：抽屉的 watch 带 immediate=true，「挂载即打开」（深链场景）本身也会加载详情，
+ * 见下方专门的回归用例；这里的 mountThenOpen 只覆盖「由关闭变打开」这条变化路径。
  */
 async function mountThenOpen() {
   const wrapper = mount(EventDetailDrawer, {
@@ -85,6 +85,22 @@ beforeEach(() => {
 });
 
 describe("事件详情抽屉 - 等待态", () => {
+  it("挂载即打开（通知/周报深链场景）也会加载详情，不再停在「没能加载」", async () => {
+    // 复现 bug：父组件在 setup 阶段就把 modelValue 与 eventId 一并传入，
+    // 子组件「挂载即已打开」。若 watch 缺 immediate，则不会请求详情，
+    // 抽屉停在错误态、必须手点重试。此用例锁死该回归。
+    store.detailLoading = false;
+    store.eventDetail = DETAIL;
+    store.loadEventDetail.mockResolvedValue(DETAIL);
+
+    const wrapper = mountDrawer(); // modelValue: true, eventId: 1 —— 挂载即打开
+    await flushPromises();
+
+    expect(store.loadEventDetail).toHaveBeenCalledWith(1);
+    expect(wrapper.text()).not.toContain("没能加载这条情报");
+    expect(wrapper.text()).toContain(DETAIL.title);
+  });
+
   it("加载中渲染骨架屏，而不是空白的抽屉", async () => {
     const wrapper = mountDrawer();
     await flushPromises();
