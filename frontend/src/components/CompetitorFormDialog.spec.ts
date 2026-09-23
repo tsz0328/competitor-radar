@@ -79,10 +79,12 @@ beforeEach(async () => {
   vi.mocked(fetchMyPreferences).mockResolvedValue({
     allowUnreachableOfficial: false,
     defaultSourceTypes: ["homepage"],
+    emailNotifyEnabled: true,
   });
   vi.mocked(saveMyPreferences).mockImplementation(async (patch: any) => ({
     allowUnreachableOfficial: patch.allowUnreachableOfficial ?? false,
     defaultSourceTypes: patch.defaultSourceTypes ?? ["homepage"],
+    emailNotifyEnabled: patch.emailNotifyEnabled ?? true,
   }));
   vi.mocked(fetchSourceTypes).mockResolvedValue([...TYPES]);
   mockCheck(""); // 默认可达
@@ -955,6 +957,7 @@ describe("添加竞品 - 官网不可达放行 与 批量入口", () => {
     vi.mocked(fetchMyPreferences).mockResolvedValue({
       allowUnreachableOfficial: true,
       defaultSourceTypes: ["homepage"],
+      emailNotifyEnabled: true,
     });
     const w: any = mount(CompetitorFormDialog, {
       props: { modelValue: false },

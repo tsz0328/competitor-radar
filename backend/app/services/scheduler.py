@@ -151,10 +151,16 @@ async def _crawl_due_sources_locked() -> int:
             if settings.scheduler_jitter_seconds > 0 and index < len(due) - 1:
                 await asyncio.sleep(settings.scheduler_jitter_seconds)
 
-        # 会话还开着时一次拿全表 id→email（避免逐用户查库）
-        emails: dict[int, str | None] = dict(
-            (await db.execute(select(User.id, User.email))).all()
-        )
+        # 会话还开着时一次拿全表 id→(email, 是否开启邮件通知)（避免逐用户查库）
+        # 注意：select 出来是 3 列 (id, email, preferences)，不能直接 dict()——dict()
+        # 只吃 2 元组，3 元组会抛 ValueError。必须显式组装成 id → (email, 开关)。
+        pref_rows = (
+            await db.execute(select(User.id, User.email, User.preferences))
+        ).all()
+        emails: dict[int, tuple[str | None, bool]] = {
+            uid: (email, (prefs or {}).get("email_notify_enabled", True))
+            for uid, email, prefs in pref_rows
+        }
 
     if crawled:
         logger.info(
@@ -165,7 +171,8 @@ async def _crawl_due_sources_locked() -> int:
 
 
 async def _notify_crawl_summary(
-    per_user: dict[int, dict[str, int]], emails: dict[int, str | None]
+    per_user: dict[int, dict[str, int]],
+    emails: dict[int, tuple[str | None, bool]],
 ) -> None:
     """把本轮抓取结果**按用户分别汇报**——只发给竞品归属人自己。
 
@@ -178,8 +185,11 @@ async def _notify_crawl_summary(
         # 本轮没有变化就不打扰（"抓了但没变"不值得发信）
         if not (stat["changed"] or stat["events"]):
             continue
-        email = emails.get(user_id)
-        if not email:
+        row = emails.get(user_id)
+        email = row[0] if row else None
+        # 用户关闭了邮件通知：跳过邮件，只保留站内铃铛
+        email_enabled = row[1] if row else True
+        if not email or not email_enabled:
             continue
         await notifier.notify(
             f"竞品雷达：你的 {stat['changed']} 处监控页面发生变化",
@@ -187,6 +197,7 @@ async def _notify_crawl_summary(
             f"{stat['changed']} 处发生变化，新增 {stat['events']} 条情报事件。"
             "登录「情报事件」页查看详情。",
             to=[email],
+            email_enabled=email_enabled,
         )
 
 
@@ -258,6 +269,10 @@ async def _generate_period_reports_locked(report_type: ReportType) -> int:
                 logger.exception("调度器：生成%s失败 user=%s", label, user.id)
                 continue
             # 顺手把要发的邮件拼成纯值（收件人 + 标题 + 正文），别把 ORM 对象带出会话
+            # 用户关闭了邮件通知：本账号的周报邮件直接跳过（只保留站内铃铛）
+            email_enabled = (user.preferences or {}).get("email_notify_enabled", True)
+            if not email_enabled:
+                continue
             mail = _report_ready_mail(user.email, report, label)
             if mail is not None:
                 pending.append(mail)

@@ -5,6 +5,8 @@
 抛出的中文报错（管理员在「发送测试邮件」里能看到的具体原因）。
 """
 
+import asyncio
+
 import pytest
 
 from app.services import notifier
@@ -98,3 +100,33 @@ def test_missing_credentials_raises() -> None:
     """用户名或授权码为空时，明确报「未配置 SMTP 用户名或授权码」。"""
     with pytest.raises(RuntimeError, match="用户名或授权码"):
         notifier._send_smtp("t", "m", ["to@example.com"], "s@example.com", "h", 465, "", "")
+
+
+def test_email_switch_off_skips_send(monkeypatch) -> None:
+    """用户关闭「接收邮件通知」开关（email_enabled=False）时，notify 直接返回 False，
+    且不发起任何 SMTP 连接——即使全局 notify_enabled 开启、后端设为 smtp。
+
+    钉住 2026-09-22 新增的开关链路末端：开关关闭是用户的主动选择，不是配置错误，
+    不应尝试发信、也不应告警。
+    """
+    monkeypatch.setattr(notifier.settings, "notify_enabled", True)
+    monkeypatch.setattr(notifier.settings, "notify_backend", "smtp")
+    monkeypatch.setattr(notifier.smtplib, "SMTP_SSL", _FakeSMTPClient)
+    monkeypatch.setattr(notifier.smtplib, "SMTP", _FakeSMTPClient)
+
+    result = asyncio.run(
+        notifier.notify("t", "m", to=["to@example.com"], email_enabled=False)
+    )
+    assert result is False
+    assert _FakeSMTPClient.created == [], "开关关闭时不应建立任何 SMTP 会话"
+
+
+def test_email_switch_on_still_sends(monkeypatch) -> None:
+    """开关开启（默认 email_enabled=True）时，notify 正常走发送分支（log 后端返回 True）。"""
+    monkeypatch.setattr(notifier.settings, "notify_enabled", True)
+    monkeypatch.setattr(notifier.settings, "notify_backend", "log")
+
+    result = asyncio.run(
+        notifier.notify("t", "m", to=["to@example.com"], email_enabled=True)
+    )
+    assert result is True

@@ -231,6 +231,7 @@ async def _notify_high_priority(
     source: MonitorSource,
     event: IntelligenceEvent,
     notify_to: list[str],
+    email_enabled: bool = True,
 ) -> None:
     """高优先级情报事件即时推送一条通知，让用户不必每天打开 Dashboard 也能收到提醒。
 
@@ -238,6 +239,7 @@ async def _notify_high_priority(
     推送是旁路：notifier 内部已保证失败不影响主流程，且只在 NOTIFY_ENABLED 时发送。
 
     notify_to：竞品归属用户在「用户中心」里填的通知邮箱；没填则**只推站内铃铛**。
+    email_enabled：该用户是否开启邮件通知（用户中心开关）；关闭时只推站内铃铛。
     """
     link = f"{settings.frontend_base_url.rstrip('/')}/app/event?id={event.id}"
     label = EVENT_TYPE_LABELS.get(event.event_type, "情报变化")
@@ -258,7 +260,7 @@ async def _notify_high_priority(
     # 那是给 scheduler 的系统级通知准备的兜底；用在这里会把「某个用户的竞品情报」
     # 投到运维信箱。所以这里显式跳过，站内铃铛照发。
     if notify_to:
-        await notifier.notify(title, message, to=notify_to)
+        await notifier.notify(title, message, to=notify_to, email_enabled=email_enabled)
 
 
 def _looks_like_html(html: str) -> bool:
@@ -435,11 +437,16 @@ async def _crawl_source_locked(
     # 收件人取竞品归属用户在「用户中心」绑定的邮箱；**没绑就只推站内铃铛**，
     # 不回落运维邮箱（回落会把别人的情报投到运维信箱，详见 _notify_high_priority）。
     if event is not None and event.priority == "high":
-        owner_email = await db.scalar(
-            select(User.email).where(User.id == competitor.user_id)
-        )
+        owner_email, owner_prefs = await db.execute(
+            select(User.email, User.preferences).where(User.id == competitor.user_id)
+        ).first() or (None, None)
+        email_enabled = (owner_prefs or {}).get("email_notify_enabled", True)
         await _notify_high_priority(
-            competitor, source, event, [owner_email] if owner_email else []
+            competitor,
+            source,
+            event,
+            [owner_email] if owner_email else [],
+            email_enabled=email_enabled,
         )
 
     _mark_success(source)

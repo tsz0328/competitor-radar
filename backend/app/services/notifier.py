@@ -70,13 +70,24 @@ def _send_smtp(
             client.send_message(mail)
 
 
-async def notify(title: str, message: str, to: list[str] | None = None) -> bool:
+async def notify(
+    title: str,
+    message: str,
+    to: list[str] | None = None,
+    email_enabled: bool = True,
+) -> bool:
     """发送一条通知；返回是否真的发出去了（未开启或发送失败都返回 False）。
 
     to 指定收件人——**凡是"某个用户的事"，必须传本人的邮箱**；
     不传只适用于系统级运维通知（发给 NOTIFY_RECIPIENTS，未配置则不发）。
+
+    email_enabled：用户级「接收邮件通知」开关（默认开启）。为 False 时直接跳过，
+    不发出也不告警——这是用户的主动选择，不是配置错误。验证码等账号类邮件
+    调用方不传该参数（走默认 True），不受开关影响。
     """
     if not settings.notify_enabled:
+        return False
+    if not email_enabled:
         return False
     # SMTP 连接参数读运行时生效值（界面可覆盖 .env 的 SMTP_*）
     cfg = await get_effective_smtp_config()

@@ -18,6 +18,7 @@ import {
 } from "@/api/notification";
 import { useNotificationStore } from "@/stores/notification";
 import EventDetailDrawer from "@/components/EventDetailDrawer.vue";
+import CompetitorLogo from "@/components/CompetitorLogo.vue";
 import type { NotificationRecord } from "@/types/event";
 import { Check, Bell } from "@element-plus/icons-vue";
 
@@ -109,6 +110,13 @@ function goToEvent(id: number) {
   router.push({ name: "Event", query: { id: String(id) } });
 }
 
+/** 优先级标签配色：高=红 / 中=橙 / 低=绿 */
+function priorityTagType(t: string): "danger" | "warning" | "success" {
+  if (t === "high") return "danger";
+  if (t === "mid") return "warning";
+  return "success";
+}
+
 onMounted(loadArchive);
 </script>
 
@@ -141,51 +149,57 @@ onMounted(loadArchive);
 
     <div v-loading="loading" class="list-wrap card">
       <template v-if="paged.length">
-        <div
-          v-for="n in paged"
-          :key="n.id"
-          class="nc-item"
-          :class="{ 'is-read': n.isRead }"
-          @click="openDetail(n)"
-        >
-          <span
-            class="nc-dot"
-            :class="n.priorityType"
-            :title="n.priority"
-          />
-          <span class="nc-icon" :style="{ background: n.iconBg, color: n.iconColor }">
-            {{ n.iconText }}
-          </span>
-          <div class="nc-main">
-            <div class="nc-row1">
-              <span class="nc-brand">{{ n.brand }}</span>
-              <el-tag
-                v-if="!n.isRead"
-                size="small"
-                type="danger"
-                effect="light"
-                class="nc-unread-tag"
-                >未读</el-tag
-              >
-              <span v-else class="nc-read-flag">
-                <el-icon><Check /></el-icon>已读
-              </span>
-            </div>
-            <div class="nc-title">{{ n.title }}</div>
-            <div class="nc-meta">
-              <span class="nc-source">{{ n.source || "未知页面" }}</span>
-              <span class="nc-sep">·</span>
-              <span>{{ n.ago }}</span>
-            </div>
-          </div>
-          <el-button
-            class="nc-go"
-            link
-            type="primary"
-            @click.stop="goToEvent(n.id)"
-            >情报中心</el-button
+          <div
+            v-for="n in paged"
+            :key="n.id"
+            class="nc-item"
+            :class="{ 'is-read': n.isRead }"
+            @click="openDetail(n)"
           >
-        </div>
+            <CompetitorLogo
+              class="nc-logo"
+              :name="n.brand"
+              :domain="n.domain"
+              :src="n.logoUrl"
+              :size="40"
+            />
+            <div class="nc-main">
+              <div class="nc-row1">
+                <span class="nc-brand">{{ n.brand }}</span>
+                <el-tag
+                  class="nc-prio-tag"
+                  size="small"
+                  :type="priorityTagType(n.priorityType)"
+                  effect="plain"
+                  >{{ n.priority }}</el-tag
+                >
+                <el-tag
+                  v-if="!n.isRead"
+                  size="small"
+                  type="danger"
+                  effect="light"
+                  class="nc-unread-tag"
+                  >未读</el-tag
+                >
+                <span v-else class="nc-read-flag">
+                  <el-icon><Check /></el-icon>已读
+                </span>
+              </div>
+              <div class="nc-title">{{ n.title }}</div>
+              <div class="nc-meta">
+                <span class="nc-source">{{ n.source || "未知页面" }}</span>
+                <span class="nc-sep">·</span>
+                <span>{{ n.ago }}</span>
+              </div>
+            </div>
+            <el-button
+              class="nc-go"
+              link
+              type="primary"
+              @click.stop="goToEvent(n.id)"
+              >情报中心</el-button
+            >
+          </div>
       </template>
       <div v-else class="nc-empty">
         {{ tab === "unread" ? "没有未读通知" : tab === "read" ? "还没有已读通知" : "暂无通知" }}
@@ -299,32 +313,11 @@ onMounted(loadArchive);
 .nc-item.is-read {
   opacity: 0.72;
 }
-.nc-dot {
-  width: 0.7vmax;
-  height: 0.7vmax;
-  border-radius: 50%;
+.nc-logo {
   flex-shrink: 0;
-  background: var(--app-text-color-placeholder);
 }
-.nc-dot.high {
-  background: var(--app-color-red);
-}
-.nc-dot.mid {
-  background: var(--app-color-orange);
-}
-.nc-dot.low {
-  background: var(--app-color-green);
-}
-.nc-icon {
-  width: 2.6vmax;
-  height: 2.6vmax;
-  border-radius: 0.5vmax;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  font-size: 1.1vmax;
+.nc-prio-tag {
+  transform: scale(0.9);
 }
 .nc-main {
   flex: 1;
@@ -340,6 +333,7 @@ onMounted(loadArchive);
   color: var(--app-text-color-primary);
   font-size: 0.95vmax;
 }
+/* 优先级 + 未读/已读 同组紧跟品牌名，整行靠左排列（不加 margin-left:auto） */
 .nc-unread-tag {
   transform: scale(0.85);
 }

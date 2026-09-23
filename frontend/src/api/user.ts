@@ -6,6 +6,8 @@ export interface UserPreferences {
   allowUnreachableOfficial: boolean;
   /** 新增竞品时默认勾选的监控页面类型 */
   defaultSourceTypes: string[];
+  /** 是否接收邮件通知（高优事件 / 抓取变化汇总 / AI 周报）；验证码等账号类邮件不受影响 */
+  emailNotifyEnabled: boolean;
 }
 
 /** 读取当前账号的偏好 */

@@ -623,7 +623,7 @@ const onReset = async () => {
 
 /* 右侧表单面板 */
 .form-panel {
-  width: 30vw;
+  width: 35vw;
   border: 1px solid color-mix(in oklch, var(--app-color-blue) 50%, transparent);
   border-radius: 2vmax;
   box-shadow: 0 6px 24px

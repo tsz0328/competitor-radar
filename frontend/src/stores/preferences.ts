@@ -10,6 +10,8 @@ export const usePreferencesStore = defineStore("preferences", () => {
   const allowUnreachableOfficial = ref(false);
   // 后端未设置过时返回空数组，这里给一个稳妥的默认值（只看官网首页）
   const defaultSourceTypes = ref<string[]>(["homepage"]);
+  // 是否接收邮件通知（默认开启）；关闭后高优事件 / 抓取汇总 / 周报不发邮件
+  const emailNotifyEnabled = ref(true);
   const loaded = ref(false);
   let inflight: Promise<void> | null = null;
 
@@ -20,6 +22,7 @@ export const usePreferencesStore = defineStore("preferences", () => {
       if (prefs.defaultSourceTypes.length) {
         defaultSourceTypes.value = prefs.defaultSourceTypes;
       }
+      emailNotifyEnabled.value = prefs.emailNotifyEnabled;
     } catch {
       // 失败时保留默认值，不阻塞页面
     } finally {
@@ -38,18 +41,21 @@ export const usePreferencesStore = defineStore("preferences", () => {
   async function save(patch: {
     allowUnreachableOfficial?: boolean;
     defaultSourceTypes?: string[];
+    emailNotifyEnabled?: boolean;
   }) {
     const prefs = await saveMyPreferences(patch);
     allowUnreachableOfficial.value = prefs.allowUnreachableOfficial;
     if (prefs.defaultSourceTypes.length) {
       defaultSourceTypes.value = prefs.defaultSourceTypes;
     }
+    emailNotifyEnabled.value = prefs.emailNotifyEnabled;
     return prefs;
   }
 
   return {
     allowUnreachableOfficial,
     defaultSourceTypes,
+    emailNotifyEnabled,
     loaded,
     ensureLoaded,
     save,

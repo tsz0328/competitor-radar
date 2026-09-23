@@ -925,10 +925,21 @@ async function loadAccount() {
 
 const editingEmail = ref(false);
 const emailSaving = ref(false);
+const emailNotifySaving = ref(false);
 const emailForm = reactive({ email: "", code: "" });
 const emailCodeSending = ref(false);
 const emailCodeSeconds = ref(0);
 let emailCodeTimer: number | undefined;
+
+/** 邮箱通知开关：关闭后高优事件 / 抓取汇总 / 周报不发邮件（验证码等账号类邮件照发） */
+async function onToggleEmailNotify(value: boolean) {
+  try {
+    await preferences.save({ emailNotifyEnabled: value });
+    ElMessage.success(value ? "已开启邮件通知" : "已关闭邮件通知");
+  } catch {
+    // 失败时 preferences.save 会抛错、本地值不更新，开关自动回弹；错误提示由 request.ts 弹出
+  }
+}
 
 function stopEmailCodeTimer() {
   if (emailCodeTimer !== undefined) {
@@ -1531,6 +1542,20 @@ onMounted(async () => {
                 </span>
                 <span v-else class="info-value muted">未绑定</span>
               </div>
+            </div>
+            <!-- 邮箱通知开关：仅绑定了邮箱才有意义（没邮箱收不到邮件） -->
+            <div v-if="account.email" class="switch-row email-notify-row">
+              <div class="switch-text">
+                <div class="switch-label">接收邮件通知</div>
+                <div class="switch-hint">
+                  高优先级情报、抓取变化汇总与 AI 周报会通过邮件提醒；关闭后只保留站内通知
+                </div>
+              </div>
+              <el-switch
+                :model-value="preferences.emailNotifyEnabled"
+                :loading="emailNotifySaving"
+                @change="onToggleEmailNotify"
+              />
             </div>
             <div v-if="!editingEmail" class="actions">
               <el-button @click="openEmailEdit">

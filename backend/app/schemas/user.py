@@ -202,6 +202,9 @@ class UserPreferencesOut(BaseModel):
     allow_unreachable_official: bool = False
     # 新增竞品时默认勾选的监控页面类型
     default_source_types: list[str] = Field(default_factory=list)
+    # 是否接收邮件通知（高优事件 / 抓取变化汇总 / AI 周报）；
+    # 验证码等账号类邮件不受此开关影响。默认开启。
+    email_notify_enabled: bool = True
 
 
 class UserPreferencesIn(BaseModel):
@@ -211,3 +214,5 @@ class UserPreferencesIn(BaseModel):
 
     allow_unreachable_official: bool | None = None
     default_source_types: list[str] | None = None
+    # 关闭后高优事件 / 抓取汇总 / 周报不再发邮件（验证码等账号类邮件照发）
+    email_notify_enabled: bool | None = None

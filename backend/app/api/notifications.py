@@ -79,12 +79,13 @@ def _high_conditions(current_user: User, cutoff: datetime | None = None) -> list
 
 
 def _to_notification(row) -> NotificationItemOut:
-    event, name, official_url, source_name, _source_url, is_read = row
+    event, name, official_url, logo_url, source_name, _source_url, is_read = row
     base = EventRecordOut(
         id=event.id,
         competitor_id=event.competitor_id,
         competitor_name=name or "",
         competitor_domain=official_url or "",
+        competitor_logo_url=logo_url or None,
         source_name=source_name or "未知页面",
         event_type=event.event_type,
         title=event.title,
@@ -104,6 +105,7 @@ def _build_stmt(current_user: User):
             IntelligenceEvent,
             Competitor.name,
             Competitor.official_url,
+            Competitor.logo_url,
             func.coalesce(MonitorSource.name, "未知页面"),
             func.coalesce(MonitorSource.url, ""),
             func.coalesce(EventRead.is_read, False).label("is_read"),

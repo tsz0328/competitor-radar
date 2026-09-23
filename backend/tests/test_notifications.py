@@ -223,8 +223,10 @@ async def test_high_priority_without_email_skips_mail(monkeypatch) -> None:
     mails: list[dict] = []
     published: list[dict] = []
 
-    async def fake_notify(title: str, message: str, to: list[str] | None = None):
-        mails.append({"title": title, "to": to})
+    async def fake_notify(
+        title: str, message: str, to: list[str] | None = None, email_enabled: bool = True
+    ):
+        mails.append({"title": title, "to": to, "email_enabled": email_enabled})
         return True
 
     class FakeBus:
@@ -256,6 +258,52 @@ async def test_high_priority_without_email_skips_mail(monkeypatch) -> None:
     assert len(published) == 2
 
 
+async def test_high_priority_email_switch_off_passes_flag(monkeypatch) -> None:
+    """用户关闭「接收邮件通知」开关后，analyzer 必须把 email_enabled=False 透传给
+    notifier——这样 notifier 会直接跳过发信，只保留站内铃铛（不涉及 SMTP 配置）。
+
+    钉住 2026-09-22 新增的开关链路：settings→analyzer→notifier。开关关掉时即便绑定了
+    邮箱，邮件也不该发出去；开关开启时照常透传 email_enabled=True。
+    """
+    from types import SimpleNamespace
+
+    from app.services import analyzer, notifier
+
+    calls: list[dict] = []
+
+    async def fake_notify(
+        title: str, message: str, to: list[str] | None = None, email_enabled: bool = True
+    ):
+        calls.append({"to": to, "email_enabled": email_enabled})
+        return True
+
+    monkeypatch.setattr(notifier, "notify", fake_notify)
+
+    competitor = SimpleNamespace(name="竞品A", user_id=1)
+    source = SimpleNamespace(name="官网", url="https://example.com")
+    event = SimpleNamespace(
+        id=7,
+        title="价格变动",
+        summary="摘要",
+        event_type=list(EventType)[0],
+        priority="high",
+    )
+
+    # 开关关闭：即使绑了邮箱，邮件也不该发（email_enabled=False 透传）
+    await analyzer._notify_high_priority(
+        competitor, source, event, ["owner@example.com"], email_enabled=False
+    )
+    assert len(calls) == 1
+    assert calls[0]["to"] == ["owner@example.com"]
+    assert calls[0]["email_enabled"] is False
+
+    # 开关开启：照常透传 email_enabled=True
+    await analyzer._notify_high_priority(
+        competitor, source, event, ["owner@example.com"], email_enabled=True
+    )
+    assert calls[1]["email_enabled"] is True
+
+
 # --------------------------------------------------------------------------- #
 # 调度器通知：按用户分别发，绝不回退运维邮箱
 # --------------------------------------------------------------------------- #
@@ -270,23 +318,33 @@ async def test_crawl_summary_goes_to_each_owner(monkeypatch) -> None:
 
     mails: list[dict] = []
 
-    async def fake_notify(title: str, message: str, to: list[str] | None = None):
-        mails.append({"title": title, "message": message, "to": to})
+    async def fake_notify(
+        title: str, message: str, to: list[str] | None = None, email_enabled: bool = True
+    ):
+        mails.append({"title": title, "message": message, "to": to, "email_enabled": email_enabled})
         return True
 
     monkeypatch.setattr(notifier, "notify", fake_notify)
 
+    # emails 的契约是 id → (邮箱, 是否开启邮件通知)；关闭开关的账号只推站内、不发信
     per_user = {
         1: {"crawled": 3, "changed": 1, "events": 1},  # 有变化 → 发
         2: {"crawled": 5, "changed": 0, "events": 0},  # 抓了但没变 → 不打扰
         3: {"crawled": 2, "changed": 2, "events": 2},  # 没绑邮箱 → 只推站内，不发信
+        4: {"crawled": 1, "changed": 1, "events": 0},  # 绑了邮箱但关了开关 → 不发信
     }
-    emails = {1: "owner@test.local", 2: "quiet@test.local", 3: None}
+    emails = {
+        1: ("owner@test.local", True),
+        2: ("quiet@test.local", True),
+        3: (None, True),
+        4: ("muted@test.local", False),
+    }
 
     await scheduler._notify_crawl_summary(per_user, emails)
 
     assert len(mails) == 1
     assert mails[0]["to"] == ["owner@test.local"]
+    assert mails[0]["email_enabled"] is True
     assert "1 处" in mails[0]["title"]
     assert "3 个监控页面" in mails[0]["message"]
 
