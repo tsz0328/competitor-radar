@@ -46,6 +46,10 @@ def _replace_source_foreign_key(table: str, ondelete: str | None) -> None:
     ):
         return  # 已是目标语义，跳过
 
+    # 真实外键名：MySQL 下是自动生成的（如 page_snapshots_ibfk_1），不能假设成
+    # fk_{table}_source_id，否则 DROP 报 1091；SQLite 反射出来是 None，才用生成名兜底。
+    constraint_name = source_fks[0].get("name") or f"fk_{table}_source_id"
+
     metadata = sa.MetaData()
     reflected = sa.Table(table, metadata, autoload_with=bind)
     targets = [
@@ -56,9 +60,8 @@ def _replace_source_foreign_key(table: str, ondelete: str | None) -> None:
     if not targets:
         return
 
-    constraint_name = f"fk_{table}_source_id"
     for fk in targets:
-        fk.name = constraint_name  # 匿名外键补名，batch 才有可 drop 的目标
+        fk.name = constraint_name  # 让 batch 的 drop 能按真实名命中（SQLite 匿名则补名）
 
     with op.batch_alter_table(table, copy_from=reflected) as batch_op:
         batch_op.drop_constraint(constraint_name, type_="foreignkey")
@@ -79,17 +82,19 @@ def _deduplicate_weekly_reports() -> None:
         sa.column("user_id", sa.BigInteger()),
         sa.column("range_start", sa.Date()),
     )
+    # MySQL 报错 1093：不允许在 DELETE 的 WHERE 子查询里直接引用正被改的表。
+    # 先把要保留的 id 取回 Python，再用显式 IN 列表删除（SQLite/MySQL 通用）。
     keepers = (
-        sa.select(sa.func.min(table.c.id).label("keep_id"))
-        .select_from(table)
-        .group_by(table.c.user_id, table.c.range_start)
-        .scalar_subquery()
-    )
-    bind.execute(
-        sa.delete(table).where(
-            table.c.id.not_in(sa.select(keepers))
+        bind.execute(
+            sa.select(sa.func.min(table.c.id))
+            .select_from(table)
+            .group_by(table.c.user_id, table.c.range_start)
         )
+        .scalars()
+        .all()
     )
+    if keepers:
+        bind.execute(sa.delete(table).where(table.c.id.not_in(keepers)))
 
 
 def upgrade() -> None:

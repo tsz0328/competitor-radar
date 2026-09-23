@@ -62,7 +62,9 @@ def upgrade() -> None:
             sa.Column("action", sa.String(64), nullable=False),
             sa.Column("target_type", sa.String(32), nullable=False),
             sa.Column("target_id", sa.BigInteger(), nullable=True),
-            sa.Column("detail", sa.Text(), nullable=False, server_default=""),
+            # 注意：MySQL 8.x 禁止 TEXT 列带字面量默认值（报错 1101）。
+            # 新建表无存量行，直接 NOT NULL 不带 DEFAULT 即可（仍满足 "非空" 语义）。
+            sa.Column("detail", sa.Text(), nullable=False),
             sa.Column(
                 "created_at",
                 sa.DateTime(timezone=True),

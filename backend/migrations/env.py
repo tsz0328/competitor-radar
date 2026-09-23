@@ -12,7 +12,7 @@ import asyncio
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import MetaData, String, Table, Column, pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -20,6 +20,36 @@ from app.core.config import get_settings
 from app.models import Base
 
 config = context.config
+
+# alembic 默认把 `alembic_version.version_num` 建成 VARCHAR(14)，但本项目的 revision id
+# 是长描述串（最长 39 字符）。SQLite 不强制列长（不报错），MySQL 强制 → 1406 报错。
+# 自定义版本表把列放宽到 255，MySQL/SQLite 通用。
+alembic_version_table = Table(
+    "alembic_version",
+    MetaData(),
+    Column("version_num", String(255), primary_key=True),
+)
+
+# Alembic 1.20.0 的 `_has_version_table()` 会把 `version_table`（当它是 Table 对象时）
+# 直接传给 `dialect.has_table()`，而后者期望表名字符串，于是报
+# `AttributeError: 'Table' object has no attribute 'replace'`。其余环节
+# （建表 / 读写 version_num）本来就支持 Table 对象。这里只补这一处。
+from alembic.runtime import migration as _alc_migration
+from alembic.util import sqla_compat as _sqla_compat
+
+_original_has_version_table = _alc_migration.MigrationContext._has_version_table
+
+
+def _patched_has_version_table(self) -> bool:
+    vt = self.version_table
+    name = vt.name if hasattr(vt, "name") else vt
+    assert self.connection is not None
+    return _sqla_compat._connectable_has_table(
+        self.connection, name, self.version_table_schema
+    )
+
+
+_alc_migration.MigrationContext._has_version_table = _patched_has_version_table
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
@@ -38,6 +68,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        version_table=alembic_version_table,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -50,6 +81,7 @@ def do_run_migrations(connection: Connection) -> None:
         compare_type=True,  # 字段类型变更也要能识别出来
         compare_server_default=True,
         render_as_batch=True,  # SQLite 的 ALTER 兼容（见模块说明）
+        version_table=alembic_version_table,
     )
     with context.begin_transaction():
         context.run_migrations()
