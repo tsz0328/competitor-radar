@@ -31,6 +31,9 @@ coverage/
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
+*.db.bak*
+/backend/*.db.bak*
+/.codebuddy/*.db.bak*
 
 # ===== Environment & Secrets =====
 # 注意：用具体名而非 .env.*，避免误伤 .env.example
@@ -38,6 +41,7 @@ coverage/
 .env.local
 .env.*.local
 !.env.example
+frontend/.env.development
 *.key
 *.pem
 *.crt
@@ -89,3 +93,6 @@ Desktop.ini
 # ===== Local artifacts / AI agent session state =====
 .codex-dashboard-desktop.png
 .codebuddy/plans/
+short_token.txt
+probe_refresh.py
+probe_refresh.out

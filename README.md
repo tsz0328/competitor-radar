@@ -145,7 +145,8 @@ npm run dev
 不想配本地环境的话，一条命令起全部（MySQL + Redis + 后端 + 前端）：
 
 ```bash
-cp .env.example .env             # 可选：改掉默认密码与 JWT_SECRET
+# MYSQL_ROOT_PASSWORD / MYSQL_PASSWORD / JWT_SECRET 必须填写为部署环境自身强随机值
+cp .env.example .env
 docker compose up --build
 ```
 
@@ -157,6 +158,7 @@ docker compose up --build
 生产要点：
 
 - **表结构由 Alembic 管理**：后端容器入口自动执行 `alembic upgrade head`（`DB_AUTO_CREATE=false`）；开发期仍是启动时 `create_all`，两条路径建出的表结构一致（已验证）
+- **生产启动强校验**：Compose 强制要求 MySQL 密码与 `JWT_SECRET`；后端在 `APP_ENV=production` 下还会拒绝 SQLite、`localhost`、内存缓存、弱密钥和示例占位凭据
 - **只有前端容器对外暴露端口**，MySQL / Redis / 后端都只在 compose 内部网络里，外面摸不到
 - **后端可横向扩容**：`docker compose up --scale backend=2`——多个副本通过 Redis 分布式锁（`CACHE_BACKEND=redis`）保证同一批到期的页面只被一个实例抓取
 - **定时任务随应用启动**：APScheduler 按每个监控页自己的频率抓取，每周一 06:00 自动生成周报；`GET /api/scheduler` 可看下次执行时间
