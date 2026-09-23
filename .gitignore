@@ -1,3 +1,9 @@
+# ============================================================
+# competitor-radar .gitignore
+# 原则：忽略「生成物 / 缓存 / 密钥 / 工具本地状态」，保留「源码 / 配置 / 文档」
+# 更新于 2026-09-23：补齐 AI 助手/CLI 会话目录、密钥形态、测试构建产物，力求一劳永逸
+# ============================================================
+
 # ===== Python =====
 __pycache__/
 *.py[cod]
@@ -5,26 +11,36 @@ __pycache__/
 *.pyd
 *.so
 *.egg-info/
+.eggs/
 build/
+dist/
 
 # Virtual Environment
 .venv/
 venv/
 env/
 
-# Python tool caches
+# Python 工具缓存
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.tox/
+.nox/
 .cache/
+.pyre/
 
-# Coverage
+# 测试 / 覆盖率
 .coverage
+.coverage.*
 coverage.xml
 htmlcov/
 coverage/
+.nyc_output/
 
-# ===== FastAPI / Database =====
+# 类型检查产物
+*.tsbuildinfo
+
+# ===== 数据库 / 迁移产物 =====
 *.db
 *.sqlite
 *.sqlite3
@@ -34,79 +50,133 @@ coverage/
 *.db.bak*
 /backend/*.db.bak*
 /.codebuddy/*.db.bak*
+*.dump
+*.sql.bak
 
-# ===== Environment & Secrets =====
+# ===== 环境变量 / 密钥 / 凭据 =====
 # 注意：用具体名而非 .env.*，避免误伤 .env.example
 .env
 .env.local
 .env.*.local
 !.env.example
 frontend/.env.development
+
+# 密钥 / 证书文件
 *.key
 *.pem
+*.pfx
+*.p12
+*.keystore
+*.jks
 *.crt
+*.cer
+*.secret
+*.priv
+id_rsa
+id_dsa
+id_ecdsa
+private_key*
 
-# ===== Logs =====
+# 凭据目录
+secrets/
+.env.secrets/
+
+# ===== 日志 / 临时 / 调试产物 =====
 *.log
 logs/
+*.out
+*.err
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+*.orig
+*.rej
+*.stackdump
 
-# ===== Crawler artifacts =====
-# 爬虫抓取的原始网页/截图等大文件，不入库；保留 .gitkeep 以维持目录
-backend/storage/*
-!backend/storage/.gitkeep
+# 已知工具特定产物（即使不以通用后缀结尾也忽略）
+.codex-dashboard-desktop.png
+.gitstatus.txt
+.pytest-notif.txt
+.tsc_out.txt
+vt.err
+*_junit.xml
+*.junit.xml
+.vitest*.txt
+short_token.txt
+probe_refresh.py
+probe_refresh.out
 
-# Playwright
+# ===== AI 助手 / CLI 本地会话状态（整目录忽略，一劳永逸）=====
+# 这些目录由 AI 编码助手 / CLI 在本地生成，含会话日志、截图、脚本、预览，
+# 不属于仓库源码。若需保留团队级规则/指令，请放 docs/ 或提交独立文件
+# （CLAUDE.md / .cursorrules / .windsurfrules / AGENTS.md / agents.md 不在忽略范围），
+# 不要依赖这些本地工具状态目录。
+.codebuddy/
+.codex/
+.claude/
+.cursor/
+.windsurf/
+.aider/
+.trae/
+.workbuddy/
+.continue/
+.agent/
+.devin/
+.gemini/
+.kiro/
+.github/copilot/
+
+# ===== 浏览器自动化 / E2E 测试产物 =====
+.playwright/
+.playwright-cli/
+.playwright-cache/
 playwright-report/
 test-results/
-.playwright/
 
-# ===== Node.js / Vue =====
+# ===== Node.js / Vue / 前端 =====
 node_modules/
 dist/
 .vite/
+.vite-cache/
 *.local
 
-# Package Managers
+# 编辑器 / 框架缓存
+.eslintcache
+.stylelintcache
+
+# 覆盖率
+coverage/
+.nyc_output/
+
+# 包管理器调试日志
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+.pnpm-store/
 
 # ===== Docker =====
 *.pid
 
-# ===== IDE / Editor =====
+# ===== IDE / 编辑器 =====
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.sublime-*
+.fleet/
+.zed/
 
-# ===== Operating System =====
+# ===== 爬虫抓取产物（保留 .gitkeep 维持目录）=====
+backend/storage/*
+!backend/storage/.gitkeep
+
+# ===== 操作系统 =====
 .DS_Store
 Thumbs.db
 Desktop.ini
-
-# ===== WorkBuddy (AI 助手本地状态/会话/日志) =====
-.workbuddy/
-
-# ===== Local artifacts / AI agent session state =====
-.codex-dashboard-desktop.png
-.codebuddy/plans/
-short_token.txt
-probe_refresh.py
-probe_refresh.out
-
-# ===== AI agent / CLI session artifacts (cleanup 2026-09-23) =====
-# 整目录忽略，避免再次误提交 AI 助手 / Playwright CLI 的会话与调试残留
-.codebuddy/
-.playwright-cli/
-.trae/
-.gitstatus.txt
-.pytest-notif.txt
-frontend/.tsc_out.txt
-frontend/.vitest-all.txt
-frontend/.vitest-nc.txt
-frontend/.vitest_junit.xml
-frontend/vt.err
-backend/.refresh_junit.xml
+ehthumbs.db
