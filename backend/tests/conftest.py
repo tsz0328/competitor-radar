@@ -31,6 +31,15 @@ def _reset_admin_stats_cache():
     admin_stats.invalidate_overview_cache()
 
 
+@pytest.fixture(autouse=True)
+def _reset_app_cache():
+    """验证码与登录限流共用模块级缓存，测试间隔离避免失败计数串味。"""
+    from app.core import cache as cache_module
+
+    cache_module._cache = None
+    yield
+    cache_module._cache = None
+
 @pytest_asyncio.fixture
 async def db():
     """内存 SQLite 引擎 + 建表，测试间相互隔离。"""

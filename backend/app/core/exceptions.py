@@ -22,6 +22,7 @@ ERR_BAD_CREDENTIALS = 40101       # 登录：账号或密码错误
 ERR_TOKEN_INVALID = 40102         # 令牌无效或已过期
 ERR_TOKEN_USER_GONE = 40103       # 令牌里的用户已被删除
 ERR_ACCOUNT_DISABLED = 40104      # 账号已被停用（登录 / 携带令牌访问时拦截）
+ERR_LOGIN_TOO_FREQUENT = 42901    # 密码登录失败次数过多
 ERR_USER_NOT_FOUND = 40402        # 查询用户：不存在
 ERR_COMPETITOR_NOT_FOUND = 40401  # 查询竞品：不存在
 ERR_EVENT_NOT_FOUND = 40403       # 查询情报事件：不存在

@@ -11,13 +11,14 @@
 3. **验证码登录（邮箱首次登录）会自动建号**：账号名取邮箱 `@` 前的本地部分（不含
    `@`），与「账号名禁 `@`」规则一致；本地部分若含非法字符或被占用，会清洗 / 加数字后缀，
    详见 `services/accounts.py:derive_username_from_email`。
-4. **失败提示不区分「账号不存在」与「密码错误」**：统一「账号或密码错误，请核对账号与密码后重试，忘记密码可点击「忘记密码」重置」，避免
+4. **失败提示不区分「账号不存在」与「密码错误」**：统一提示账号或密码错误，
+   并引导核对账号与密码、需要时重置，避免
    把「某账号是否存在」免费告诉探测者。
 """
-from typing import Annotated
 from datetime import datetime, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -51,6 +52,7 @@ from app.schemas.user import (
     UserOut,
 )
 from app.services import email_code as email_code_service
+from app.services import login_guard
 from app.services.accounts import (
     assert_identifier_free,
     derive_username_from_email,
@@ -61,6 +63,9 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 # bcrypt 的上限：超过 72 字节会被静默截断，干脆提前拒绝
 PASSWORD_MAX_LEN = 72
+LOGIN_FAILED_MESSAGE = (
+    "账号或密码错误，请核对账号与密码后重试，忘记密码可点击「忘记密码」重置"
+)
 
 
 def _brief(user: User) -> UserBrief:
@@ -145,15 +150,18 @@ async def register(
 
 @router.post("/login", response_model=AuthResult)
 async def login(
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     payload: LoginRequest,
 ):
     """密码登录：account 传账号名或邮箱，两者都认。"""
     account = normalize_identifier(payload.account)
+    await login_guard.ensure_allowed(request, account)
     user = await _find_by_identifier(db, account)
 
     if user is None:
-        raise BusinessError(ERR_BAD_CREDENTIALS, "账号或密码错误，请核对账号与密码后重试，忘记密码可点击「忘记密码」重置", 401)
+        await login_guard.record_failure(request, account)
+        raise BusinessError(ERR_BAD_CREDENTIALS, LOGIN_FAILED_MESSAGE, 401)
     if not user.password_hash:
         # 验证码登录自动创建的账号本来就没密码，直接点明该走哪条路，别让用户干猜
         raise BusinessError(
@@ -162,12 +170,15 @@ async def login(
             "登录后可在用户中心设置密码",
             400,
         )
+    await login_guard.ensure_user_allowed(user.id)
     if not verify_password(payload.password, user.password_hash):
-        raise BusinessError(ERR_BAD_CREDENTIALS, "账号或密码错误，请核对账号与密码后重试，忘记密码可点击「忘记密码」重置", 401)
+        await login_guard.record_failure(request, user.id)
+        raise BusinessError(ERR_BAD_CREDENTIALS, LOGIN_FAILED_MESSAGE, 401)
     if not user.is_active:
         raise BusinessError(ERR_ACCOUNT_DISABLED, "账号已被停用，请联系管理员", 401)
 
     # 登录成功：刷新「最近活跃」时间（管理端用户列表展示用）
+    await login_guard.clear_account_failures(account, user.id)
     user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
 
