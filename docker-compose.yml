@@ -1,7 +1,8 @@
 # 一键起全部（里程碑 11）：MySQL + Redis + FastAPI 后端 + Nginx(前端静态 + /api 反代)
 #
 # 用法：
-#   cp .env.example .env      # 可选：改掉默认密码与密钥
+#   # .env.example 中 MYSQL_ROOT_PASSWORD / MYSQL_PASSWORD / JWT_SECRET 必须填写
+#   cp .env.example .env
 #   docker compose up --build
 # 然后访问 http://localhost:8080（前端），http://localhost:8080/docs（接口文档）
 #
@@ -19,10 +20,10 @@ services:
   mysql:
     image: mysql:8.4
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-acr_change_me_root}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD_is_required}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-competitor_radar}
       MYSQL_USER: ${MYSQL_USER:-acr}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-acr_change_me}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD_is_required}
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
@@ -33,7 +34,7 @@ services:
         - -h
         - 127.0.0.1
         - -uroot
-        - -p${MYSQL_ROOT_PASSWORD:-acr_change_me_root}
+        - -p${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD_is_required}
       interval: 5s
       timeout: 3s
       retries: 20
@@ -57,7 +58,8 @@ services:
     build: ./backend
     environment:
       # 生产三件套：MySQL 连接串 + 关掉自动建表 + Redis 做分布式锁
-      DB_URL: mysql+aiomysql://${MYSQL_USER:-acr}:${MYSQL_PASSWORD:-acr_change_me}@mysql:3306/${MYSQL_DATABASE:-competitor_radar}?charset=utf8mb4
+      APP_ENV: production
+      DB_URL: mysql+aiomysql://${MYSQL_USER:-acr}:${MYSQL_PASSWORD:?MYSQL_PASSWORD_is_required}@mysql:3306/${MYSQL_DATABASE:-competitor_radar}?charset=utf8mb4
       DB_AUTO_CREATE: "false"
       CACHE_BACKEND: redis
       REDIS_URL: redis://redis:6379/0
@@ -69,7 +71,7 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_SENDER: ${SMTP_SENDER:-}
       NOTIFY_RECIPIENTS: ${NOTIFY_RECIPIENTS:-}
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET_is_required}
       # 同源部署下浏览器请求都是走 Nginx 反代的 /api，这里的 CORS 只是兜底
       CORS_ORIGINS: '["http://localhost:8080"]'
       STORAGE_DIR: /app/storage

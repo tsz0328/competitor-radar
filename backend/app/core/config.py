@@ -1,10 +1,30 @@
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend 根目录（本文件在 backend/app/core/ 下，往上两级就是 backend）
 BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+_PRODUCTION_DB_PREFIXES = (
+    "mysql://",
+    "mysql+",
+    "mariadb://",
+    "mariadb+",
+    "postgresql://",
+    "postgresql+",
+)
+_LOCAL_DB_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+_WEAK_SECRET_MARKERS = (
+    "change-me",
+    "change_me",
+    "changeme",
+    "please-change",
+    "dev-secret",
+    "acr_change_me",
+)
 
 
 class Settings(BaseSettings):
@@ -12,6 +32,8 @@ class Settings(BaseSettings):
 
     # ---- 数据库（开发期 SQLite；生产换 MySQL 只改这一行）----
     db_url: str = "sqlite+aiosqlite:///./dev.db"
+    # development = 保留方便默认值；production = 启动时执行安全配置强校验
+    app_env: str = "development"
     # ---- 通用运行参数 ----
     # 业务时区：事件日期、通知未读窗口、周报自然周均按此时区口径计算
     app_timezone: str = "Asia/Shanghai"
@@ -144,6 +166,50 @@ class Settings(BaseSettings):
     email_code_resend_seconds: int = 60
     # 同一个邮箱每小时最多获取几次（按自然小时滑动窗口内的固定桶计数）
     email_code_hourly_limit: int = 10
+
+    # ---- 密码登录失败限流 ----
+    # 同一账号或同一客户端 IP 在窗口内累计失败达到该值后进入冷却
+    login_failure_limit: int = 5
+    login_failure_window_seconds: int = 900
+    # X-Forwarded-For 只有部署在可信反代后并准确指出代理层数时才采纳
+    trusted_proxy_count: int = 0
+
+    @model_validator(mode="after")
+    def validate_production_config(self):
+        """生产环境启动硬校验，避免开发默认值或示例占位符被带上线。"""
+        if self.app_env.strip().lower() != "production":
+            return self
+
+        problems: list[str] = []
+
+        if self.db_auto_create:
+            problems.append("db_auto_create 必须是 false")
+
+        db_url = self.db_url.strip().lower()
+        if not db_url.startswith(_PRODUCTION_DB_PREFIXES):
+            problems.append("db_url 必须使用 MySQL/MariaDB/PostgreSQL 服务端数据库")
+        else:
+            hostname = (urlsplit(db_url).hostname or "").lower()
+            if not hostname or hostname in _LOCAL_DB_HOSTS:
+                problems.append("db_url 不能指向 localhost 或回环地址")
+        if "dev.db" in db_url or any(marker in db_url for marker in _WEAK_SECRET_MARKERS):
+            problems.append("db_url 仍包含开发数据库名或示例占位凭据")
+
+        if self.cache_backend.strip().lower() != "redis":
+            problems.append("cache_backend 必须是 redis")
+
+        weak_jwt = any(marker in self.jwt_secret.lower() for marker in _WEAK_SECRET_MARKERS)
+        if len(self.jwt_secret.encode("utf-8")) < 32:
+            problems.append("jwt_secret 长度至少 32 字节")
+        if weak_jwt:
+            problems.append("jwt_secret 不能使用示例或占位值")
+
+        if self.notify_enabled and self.notify_backend.strip().lower() != "smtp":
+            problems.append("notify_enabled=true 时 notify_backend 必须是 smtp")
+
+        if problems:
+            raise ValueError("生产配置启动校验失败：" + "；".join(problems))
+        return self
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_DIR / ".env",  # 从 backend/.env 读取
