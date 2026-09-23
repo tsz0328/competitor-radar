@@ -1,4 +1,0 @@
-﻿CHANGED= 2
-competitor 2: {'name': 'Figma', 'url': 'https://www.figma.com', 'logo': '/api/icons/25bb6268016349258327d21d6120fde5.png'} -> {'name': 'Figma', 'url': 'https://www.figma.com', 'logo': '/api/icons/25bb6268016349258327d21d6120fde5.png'}
-competitor 20: {'name': 'Figma', 'url': 'https://figma.com', 'logo': 'https://static.figma.com/favicon.svg'} -> {'name': 'Figma', 'url': 'https://figma.com', 'logo': '/api/icons/25bb6268016349258327d21d6120fde5.png'}
-

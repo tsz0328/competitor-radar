@@ -1,1 +1,0 @@
-export { default as Openai } from "./Openai.vue";
