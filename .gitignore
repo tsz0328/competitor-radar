@@ -143,6 +143,9 @@ dist/
 .vite-cache/
 *.local
 
+# vite-plugin-mock 在 dev/preview 时自动生成的 bundle 缓存（勿提交）
+frontend/mock/_*.bundled_*.mjs
+
 # 编辑器 / 框架缓存
 .eslintcache
 .stylelintcache

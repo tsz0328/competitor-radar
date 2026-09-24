@@ -20,6 +20,7 @@ apscheduler>=3.10,<4
 
 # ---- 部署（里程碑 11）----
 alembic>=1.13            # 生产用迁移而非 create_all
+aiomysql>=0.2            # MySQL 异步驱动：Compose 使用 mysql+aiomysql
 redis>=5.0               # CACHE_BACKEND=redis 时使用
 
 # ---- 开发工具 ----
