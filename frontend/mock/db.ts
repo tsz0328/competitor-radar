@@ -157,10 +157,10 @@ function createDB(): DB {
   const users: any[] = [
     {
       id: 1,
-      username: "1614910065",
+      username: "admin",
       name: "管理员",
       password: "123456",
-      email: "1614910065@qq.com",
+      email: "admin@example.com",
       avatar: "",
       isAdmin: true,
       active: true,
@@ -572,9 +572,9 @@ function createDB(): DB {
       { id: 1, content: "欢迎使用竞品雷达，后续版本将持续迭代，敬请期待。", is_active: true, createdAt: hoursAgo(5) },
     ],
     auditLogs: [
-      { id: 1, adminUsername: "1614910065", action: "update_system_settings", targetType: "system_settings", targetId: null, detail: "更新 SMTP 发件配置", createdAt: hoursAgo(2) },
-      { id: 2, adminUsername: "1614910065", action: "create_announcement", targetType: "announcement", targetId: 1, detail: "发布平台公告", createdAt: hoursAgo(5) },
-      { id: 3, adminUsername: "1614910065", action: "update_user", targetType: "user", targetId: 2, detail: "修改用户 demo 的资料", createdAt: hoursAgo(20) },
+      { id: 1, adminUsername: "admin", action: "update_system_settings", targetType: "system_settings", targetId: null, detail: "更新 SMTP 发信配置", createdAt: hoursAgo(2) },
+      { id: 2, adminUsername: "admin", action: "create_announcement", targetType: "announcement", targetId: 1, detail: "发布平台公告", createdAt: hoursAgo(5) },
+      { id: 3, adminUsername: "admin", action: "update_user", targetType: "user", targetId: 2, detail: "修改用户 demo 的资料", createdAt: hoursAgo(20) },
     ],
     seq: { competitor: nextCompetitorId, event: nextEventId, report: nextReportId, crawlLog: nextCrawlLogId, provider: 3, source: sourceId, user: 5, announcement: 2, auditLog: 4 },
   };
